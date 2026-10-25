@@ -1,0 +1,29 @@
+[project]
+name = "ricelo-running-science"
+version = "0.2.0"
+description = "ricelo running science - Precision running telemetry, sub-integer VO2 max, and physiological load intelligence for AI and humans"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fitparse>=1.2.0",
+    "httpx>=0.28.1",
+    "mcp[cli]>=1.30.0",
+    "pandas>=3.1.0",
+    "rich>=15.0.0",
+    "typer>=0.27.3",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+ricelo = "ricelo.cli:app"
+ricelo-cli = "ricelo.cli:app"
+ricelo-running-science-mcp = "ricelo.mcp_server:main"
+garmin-cli = "ricelo.cli:app"
+garmin-analytics-mcp = "ricelo.mcp_server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ricelo"]

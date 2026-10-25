@@ -1,0 +1,145 @@
+"""Garmin biometric recovery, sleep, HRV, and training readiness analysis."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import date, datetime
+from typing import Any
+
+
+@dataclass
+class DailyRecoveryStatus:
+    """Consolidated biometric recovery metrics for a single day."""
+    date_str: str
+    sleep_score: int | None
+    sleep_duration_hours: float | None
+    deep_sleep_hours: float | None
+    rem_sleep_hours: float | None
+    hrv_last_night_avg_ms: float | None
+    hrv_weekly_avg_ms: float | None
+    hrv_status: str | None
+    resting_hr_bpm: int | None
+    body_battery_max: int | None
+    body_battery_charged: int | None
+    avg_stress_score: int | None
+    readiness_verdict: str
+    training_recommendation: str
+
+
+def evaluate_daily_readiness(
+    sleep_data: dict[str, Any] | None = None,
+    hrv_data: dict[str, Any] | None = None,
+    body_battery_data: dict[str, Any] | None = None,
+    daily_summary: dict[str, Any] | None = None,
+) -> DailyRecoveryStatus:
+    """
+    Synthesize sleep, HRV, body battery, and stress into a holistic recovery status.
+    """
+    sleep_score: int | None = None
+    sleep_dur_h: float | None = None
+    deep_sleep_h: float | None = None
+    rem_sleep_h: float | None = None
+
+    if sleep_data:
+        # Sleep score
+        sleep_score = sleep_data.get("sleepScores", {}).get("overall", {}).get("value")
+        if sleep_score is None:
+            sleep_score = sleep_data.get("overallScore")
+
+        # Sleep durations
+        sleep_seconds = sleep_data.get("sleepTimeSeconds") or sleep_data.get("durationInSeconds")
+        if sleep_seconds:
+            sleep_dur_h = round(float(sleep_seconds) / 3600.0, 1)
+
+        deep_s = sleep_data.get("deepSleepSeconds")
+        if deep_s:
+            deep_sleep_h = round(float(deep_s) / 3600.0, 1)
+
+        rem_s = sleep_data.get("remSleepSeconds")
+        if rem_s:
+            rem_sleep_h = round(float(rem_s) / 3600.0, 1)
+
+    # HRV metrics
+    hrv_last_night: float | None = None
+    hrv_weekly: float | None = None
+    hrv_status: str | None = None
+
+    if hrv_data:
+        hrv_summary = hrv_data.get("hrvSummary") or hrv_data
+        hrv_last_night = hrv_summary.get("lastNightAvg")
+        hrv_weekly = hrv_summary.get("weeklyAvg")
+        hrv_status = hrv_summary.get("status")
+
+    # Body Battery
+    bb_max: int | None = None
+    bb_charged: int | None = None
+
+    if body_battery_data:
+        bb_max = body_battery_data.get("charged") or body_battery_data.get("bodyBatteryHighestValue")
+        bb_charged = body_battery_data.get("charged")
+
+    # Daily summary & Resting HR
+    rhr: int | None = None
+    avg_stress: int | None = None
+
+    if daily_summary:
+        hr_dict = daily_summary.get("heartRate") or {}
+        rhr = hr_dict.get("restingValue") or daily_summary.get("restingHeartRate") or daily_summary.get("restingHR")
+
+        stress_dict = daily_summary.get("stress") or {}
+        avg_stress = stress_dict.get("avgLevel") or daily_summary.get("averageStressLevel") or daily_summary.get("avgStress")
+
+        if bb_max is None:
+            bb_dict = daily_summary.get("bodyBattery") or {}
+            bb_max = bb_dict.get("maxValue")
+            bb_charged = bb_dict.get("chargedValue")
+
+    # Determine readiness score & verdict
+    score_components = []
+    if sleep_score is not None:
+        score_components.append(sleep_score)
+    if hrv_status:
+        st = hrv_status.lower()
+        if "balanced" in st:
+            score_components.append(85)
+        elif "unbalanced" in st:
+            score_components.append(50)
+        elif "low" in st:
+            score_components.append(30)
+    if bb_charged is not None:
+        score_components.append(min(100, bb_charged))
+
+    composite_score = sum(score_components) / len(score_components) if score_components else 70.0
+
+    today_str = (
+        (sleep_data and sleep_data.get("calendarDate"))
+        or (daily_summary and daily_summary.get("calendarDate"))
+        or date.today().isoformat()
+    )
+
+    if composite_score >= 80:
+        verdict = "High Readiness / Prime for Peak Performance"
+        rec = "Body is well-recovered. Excellent day for high-intensity intervals, tempo runs, or heavy threshold training."
+    elif composite_score >= 60:
+        verdict = "Moderate Readiness / Steady State"
+        rec = "Recovery is adequate. Ideal for aerobic base miles (Zone 2), steady aerobic maintenance, or moderate effort."
+    else:
+        verdict = "Low Readiness / Recovery Priority"
+        rec = "Elevated physiological strain detected (low HRV or sub-optimal sleep). Prioritize rest, active recovery walk, gentle yoga, or early bedtime."
+
+    return DailyRecoveryStatus(
+        date_str=today_str,
+        sleep_score=sleep_score,
+        sleep_duration_hours=sleep_dur_h,
+        deep_sleep_hours=deep_sleep_h,
+        rem_sleep_hours=rem_sleep_h,
+        hrv_last_night_avg_ms=hrv_last_night,
+        hrv_weekly_avg_ms=hrv_weekly,
+        hrv_status=hrv_status,
+        resting_hr_bpm=rhr,
+        body_battery_max=bb_max,
+        body_battery_charged=bb_charged,
+        avg_stress_score=avg_stress,
+        readiness_verdict=verdict,
+        training_recommendation=rec,
+    )

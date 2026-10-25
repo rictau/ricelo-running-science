@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ricelo-running-science": {
+      "command": "uv",
+      "args": [
+        "run",
+        "ricelo-running-science-mcp"
+      ]
+    }
+  }
+}
