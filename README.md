@@ -1,5 +1,6 @@
 # Ricelo Running Science
 
+[![PyPI](https://img.shields.io/pypi/v/ricelo-running-science.svg)](https://pypi.org/project/ricelo-running-science/)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-Standard-purple.svg)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rictau/ricelo-running-science/blob/master/LICENSE)
@@ -14,9 +15,9 @@ Running analytics for your Garmin data, as an MCP server for AI assistants and a
    printf "Garmin Personal API key: " && read -s val && echo && mkdir -p ~/.config/garmin && echo "$val" > ~/.config/garmin/connect-personal-api-key && chmod 600 ~/.config/garmin/connect-personal-api-key
    ```
    Or set the `GARMIN_PERSONAL_API_KEY` environment variable, which takes precedence.
-3. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you don't have it, then check the connection (this downloads ricelo from GitHub; no clone needed):
+3. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) if you don't have it, then check the connection (this downloads ricelo from PyPI; nothing to install first):
    ```bash
-   uvx --from git+https://github.com/rictau/ricelo-running-science.git ricelo auth
+   uvx --from ricelo-running-science ricelo auth
    ```
 
 ## Add to Your AI Client
@@ -28,7 +29,7 @@ Add this server entry to your client's config. Replace `/path/to/uvx` with the o
   "mcpServers": {
     "ricelo": {
       "command": "/path/to/uvx",
-      "args": ["--from", "git+https://github.com/rictau/ricelo-running-science.git", "ricelo-running-science-mcp"]
+      "args": ["ricelo-running-science@latest"]
     }
   }
 }
@@ -41,8 +42,8 @@ If the config file already has an `"mcpServers"` section, add only the `"ricelo"
 | Claude Desktop | Settings → Developer → **Edit Config** opens `claude_desktop_config.json`. Save, then quit with Cmd+Q and reopen; **ricelo** should show as running under Settings → Developer. |
 | Cursor | `~/.cursor/mcp.json` |
 | Antigravity | `~/.gemini/config/mcp_config.json` |
-| Claude Code | `claude mcp add ricelo -- uvx --from git+https://github.com/rictau/ricelo-running-science.git ricelo-running-science-mcp` |
-| Codex | `codex mcp add ricelo -- uvx --from git+https://github.com/rictau/ricelo-running-science.git ricelo-running-science-mcp` |
+| Claude Code | `claude mcp add ricelo -- uvx ricelo-running-science@latest` |
+| Codex | `codex mcp add ricelo -- uvx ricelo-running-science@latest` |
 
 The server reads your key from the file saved in Quick Start. To pass it from the config instead, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }` to the entry.
 
@@ -69,7 +70,7 @@ Readiness needs the watch to be worn overnight; without sleep or HRV data it giv
 Install the commands once, then run `ricelo <command>` (aliases: `ricelo-cli`, `garmin-cli`):
 
 ```bash
-uv tool install git+https://github.com/rictau/ricelo-running-science.git
+uv tool install ricelo-running-science
 ```
 
 | Command | What it shows |
@@ -90,10 +91,10 @@ uv tool install git+https://github.com/rictau/ricelo-running-science.git
 
 ## Updating
 
-- **MCP server:** `uvx` checks GitHub each time the server starts and fetches the latest version, so quitting and reopening your AI client is enough.
-- **CLI installed with `uv tool install`:** reinstall to update:
+- **MCP server:** with `@latest`, `uvx` checks PyPI each time the server starts and fetches a new release, so quitting and reopening your AI client is enough.
+- **CLI installed with `uv tool install`:**
   ```bash
-  uv tool install --force git+https://github.com/rictau/ricelo-running-science.git
+  uv tool upgrade ricelo-running-science
   ```
 
 ## Development
@@ -103,6 +104,8 @@ git clone https://github.com/rictau/ricelo-running-science.git && cd ricelo-runn
 uv run ricelo auth    # run the CLI from your local code
 uv run pytest         # run the tests
 ```
+
+To release: bump `version` in `pyproject.toml`, merge, then publish a GitHub release tagged `v<version>` (e.g. `v0.4.1`). The publish workflow tests, builds and uploads it to PyPI.
 
 ## License
 
