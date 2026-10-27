@@ -88,6 +88,14 @@ uv tool install git+https://github.com/rictau/ricelo-running-science.git
 | `download <id>` | Download and summarise an activity's FIT file |
 | `dashboard -w 12` | Standalone HTML dashboard (`--max-hr` to override Garmin's max HR) |
 
+## Updating
+
+- **MCP server:** `uvx` checks GitHub each time the server starts and fetches the latest version, so quitting and reopening your AI client is enough.
+- **CLI installed with `uv tool install`:** reinstall to update:
+  ```bash
+  uv tool install --force git+https://github.com/rictau/ricelo-running-science.git
+  ```
+
 ## Development
 
 ```bash
