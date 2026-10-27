@@ -114,7 +114,7 @@ def get_training_volume(weeks: int = 12, frequency: str = "W") -> list[dict[str,
     and sport distribution.
     """
     start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
-    raw_list = default_client.search_activities(start_date=start_date, limit=150)
+    raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     periods = aggregate_volume(activities, freq=frequency)
 
@@ -145,7 +145,7 @@ def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     """
     # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
     start_date = (date.today() - timedelta(days=days + 150)).isoformat()
-    raw_list = default_client.search_activities(start_date=start_date, limit=300)
+    raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     timeline = calculate_fitness_fatigue(activities, days=days)
 
@@ -179,7 +179,7 @@ def get_personal_records() -> list[dict[str, Any]]:
     Find athlete's career running personal records and landmark efforts across historical activities
     (Marathon 42.2K, Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, Max Elevation Gain).
     """
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    raw_list = default_client.search_all_activities()
     activities = [Activity.from_api_dict(a) for a in raw_list]
     bests = find_best_efforts(activities)
 
@@ -256,7 +256,9 @@ def get_acwr_injury_risk() -> dict[str, Any]:
     to assess soft-tissue injury risk and workload progression rate.
     Returns acute load (last 7 days), chronic load (28-day baseline), ratio, zone verdict, and recommendation.
     """
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    # Fetch past the fitness model's 126-day warm-up (see calculate_fitness_fatigue)
+    start_date = (date.today() - timedelta(days=60 + 150)).isoformat()
+    raw_list = default_client.search_all_activities(start_date=start_date)
     acts = [Activity.from_api_dict(a) for a in raw_list]
     timeline = calculate_fitness_fatigue(acts, days=60)
     rec = calculate_acwr(timeline)
@@ -291,7 +293,7 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
             "race_predictions": get_vdot_race_predictions(v),
         }
 
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    raw_list = default_client.search_all_activities()
     acts = [Activity.from_api_dict(a) for a in raw_list]
     vdot_data = find_best_empirical_vdot(acts)
 

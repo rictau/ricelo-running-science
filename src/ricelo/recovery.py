@@ -131,12 +131,14 @@ def evaluate_daily_readiness(
     if sleep_score is not None:
         score_components.append(sleep_score)
     if hrv_status:
+        # Check "unbalanced" before "balanced": the substring test for
+        # "balanced" also matches "UNBALANCED".
         st = hrv_status.lower()
-        if "balanced" in st:
-            score_components.append(85)
-        elif "unbalanced" in st:
+        if "unbalanced" in st:
             score_components.append(50)
-        elif "low" in st:
+        elif "balanced" in st:
+            score_components.append(85)
+        elif "low" in st or "poor" in st:
             score_components.append(30)
     # Score Body Battery on its peak value, not on the day's charge total.
     # The Personal API reports a completed day's charge as 0 even when the

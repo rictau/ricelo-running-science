@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import json
 import math
 from datetime import date, datetime, timedelta
@@ -26,6 +27,15 @@ from .performance import (
 from .recovery import DailyRecoveryStatus
 
 console = Console()
+
+
+def _script_json(obj: Any) -> str:
+    """Serialize obj for embedding in an inline <script> block.
+
+    Escaping "<" stops a value containing "</script>" (such as an activity
+    name) from ending the script element early.
+    """
+    return json.dumps(obj).replace("<", "\\u003c")
 
 
 def print_activities_table(activities: list[Activity], title: str = "Garmin Activities") -> None:
@@ -319,7 +329,20 @@ def generate_html_dashboard(
     elev_30d_m = sum(a.elevation_gain_m or 0.0 for a in acts_30d)
 
     latest_run = next((a for a in activities if "run" in a.activity_type.lower()), None)
-    latest_run_decoupling = latest_run.aerobic_decoupling_pct if latest_run else 5.98
+    latest_run_decoupling = latest_run.aerobic_decoupling_pct if latest_run else None
+    if latest_run_decoupling is None:
+        drift_value, drift_badge, drift_label = "N/A", "badge-fresh", "No split data"
+    elif latest_run_decoupling < 5.0:
+        drift_value, drift_badge, drift_label = f"{latest_run_decoupling:.2f}%", "badge-fresh", "Efficient"
+    elif latest_run_decoupling <= 8.0:
+        drift_value, drift_badge, drift_label = f"{latest_run_decoupling:.2f}%", "badge-fatigued", "Moderate drift"
+    else:
+        drift_value, drift_badge, drift_label = f"{latest_run_decoupling:.2f}%", "badge-risk", "High drift"
+    drift_subtext = (
+        html.escape(f"{latest_run.start_time_local[:10]} {latest_run.distance_km:.1f}km {latest_run.name}")
+        if latest_run
+        else "No recent run"
+    )
 
     # 6. Prepare serialized data structures
     serialized_acts = []
@@ -390,11 +413,11 @@ def generate_html_dashboard(
         for e in best_efforts
     ]
 
-    js_activities = json.dumps(serialized_acts)
-    js_fitness = json.dumps(fitness_json)
-    js_volume = json.dumps(volume_json)
-    js_vo2 = json.dumps(vo2_history)
-    js_efforts = json.dumps(efforts_json)
+    js_activities = _script_json(serialized_acts)
+    js_fitness = _script_json(fitness_json)
+    js_volume = _script_json(volume_json)
+    js_vo2 = _script_json(vo2_history)
+    js_efforts = _script_json(efforts_json)
 
     acwr_rec = calculate_acwr(fitness_records)
     if vdot_info is None:
@@ -403,7 +426,7 @@ def generate_html_dashboard(
     # Build VDOT section HTML
     if vdot_info:
         v_val = vdot_info["vdot"]
-        v_name = vdot_info["benchmark_activity_name"]
+        v_name = html.escape(str(vdot_info["benchmark_activity_name"]))
         v_dist = vdot_info["benchmark_distance"]
         v_time = vdot_info["benchmark_time"]
         v_date = vdot_info["benchmark_date"]
@@ -507,7 +530,7 @@ def generate_html_dashboard(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
-    <title>Ricelo Running Science | Performance Dashboard ({athlete_name})</title>
+    <title>Ricelo Running Science | Performance Dashboard ({html.escape(athlete_name)})</title>
 
     <!-- Professional Typography: Plus Jakarta Sans & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1202,7 +1225,7 @@ def generate_html_dashboard(
 
         <div class="nav-right">
             <div class="profile-chip">
-                <div class="pill">Athlete: <strong>{athlete_name}</strong></div>
+                <div class="pill">Athlete: <strong>{html.escape(athlete_name)}</strong></div>
                 <div class="pill">Age: <strong>43</strong> (Fitness Age: <strong>40.7</strong>)</div>
                 <div class="pill">Max HR: <strong>185 bpm</strong> | LTHR: <strong>165 bpm</strong></div>
             </div>
@@ -1292,10 +1315,10 @@ def generate_html_dashboard(
         <div class="kpi-card">
             <div class="kpi-title">Cardiac Drift (Latest Run)</div>
             <div class="kpi-value-row">
-                <span class="kpi-value">{latest_run_decoupling:.2f}%</span>
-                <span class="badge badge-fresh">Efficient</span>
+                <span class="kpi-value">{drift_value}</span>
+                <span class="badge {drift_badge}">{drift_label}</span>
             </div>
-            <div class="kpi-subtext">2026/10/25 22.0km Run (Tempo phase: 3.57%)</div>
+            <div class="kpi-subtext">{drift_subtext}</div>
         </div>
     </section>
 
@@ -1550,6 +1573,12 @@ def generate_html_dashboard(
         let sortAsc = false;
         let currentTheme = '{default_theme}';
 
+        function escapeHtml(value) {{
+            return String(value ?? '').replace(/[&<>"']/g, ch => ({{
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }})[ch]);
+        }}
+
         let chartFitness = null;
         let chartVolume = null;
         let chartVo2 = null;
@@ -1652,8 +1681,8 @@ def generate_html_dashboard(
 
                 tr.innerHTML = `
                     <th>${{act.date}}</th>
-                    <td><strong>${{act.name}}</strong></td>
-                    <td><span class="badge" style="background: rgba(0,0,0,0.05); color: var(--text-secondary);">${{act.type}}</span></td>
+                    <td><strong>${{escapeHtml(act.name)}}</strong></td>
+                    <td><span class="badge" style="background: rgba(0,0,0,0.05); color: var(--text-secondary);">${{escapeHtml(act.type)}}</span></td>
                     <td style="text-align: right; color: var(--accent-amber); font-weight: 700;">${{act.distance_km.toFixed(2)}} km</td>
                     <td style="text-align: right;">${{act.duration_str}}</td>
                     <td style="text-align: right; color: var(--accent-cyan); font-weight: 700;">${{speedDisp}}</td>
@@ -1789,7 +1818,7 @@ def generate_html_dashboard(
                 card.innerHTML = `
                     <h3>${{e.category}}</h3>
                     <div class="val">${{e.value}}</div>
-                    <div class="meta">${{e.activity_name}} • ${{e.date}}</div>
+                    <div class="meta">${{escapeHtml(e.activity_name)}} • ${{e.date}}</div>
                 `;
                 grid.appendChild(card);
             }});
