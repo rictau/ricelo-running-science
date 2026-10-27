@@ -315,29 +315,6 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
     }
 
 
-# Aliases for backward compatibility
-ricelo_analyze_run = mcp.tool(name="ricelo_analyze_run")(analyze_run)
-garmin_analyze_activity = mcp.tool(name="garmin_analyze_activity")(analyze_run)
-
-ricelo_compare_runs = mcp.tool(name="ricelo_compare_runs")(compare_runs)
-garmin_compare_activities = mcp.tool(name="garmin_compare_activities")(compare_runs)
-
-ricelo_get_training_volume = mcp.tool(name="ricelo_get_training_volume")(get_training_volume)
-garmin_get_training_volume = mcp.tool(name="garmin_get_training_volume")(get_training_volume)
-
-ricelo_get_fitness_and_freshness = mcp.tool(name="ricelo_get_fitness_and_freshness")(get_fitness_and_freshness)
-garmin_get_fitness_and_freshness = mcp.tool(name="garmin_get_fitness_and_freshness")(get_fitness_and_freshness)
-
-ricelo_get_personal_records = mcp.tool(name="ricelo_get_personal_records")(get_personal_records)
-garmin_get_best_efforts = mcp.tool(name="garmin_get_best_efforts")(get_personal_records)
-
-ricelo_get_readiness_assessment = mcp.tool(name="ricelo_get_readiness_assessment")(get_readiness_assessment)
-garmin_get_readiness_assessment = mcp.tool(name="garmin_get_readiness_assessment")(get_readiness_assessment)
-
-ricelo_get_acwr_injury_risk = mcp.tool(name="ricelo_get_acwr_injury_risk")(get_acwr_injury_risk)
-ricelo_get_vdot_paces = mcp.tool(name="ricelo_get_vdot_paces")(get_vdot_paces)
-
-
 def main():
     mcp.run()
 
