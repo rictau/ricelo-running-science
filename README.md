@@ -20,6 +20,11 @@ Running analytics for your Garmin data, as an MCP server for AI assistants and a
    uvx --from ricelo-running-science ricelo auth
    ```
 
+On **Windows**, save the key in PowerShell instead (the input is visible):
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.config\garmin" | Out-Null; Read-Host "Garmin Personal API key" | Set-Content -NoNewline -Encoding ascii "$HOME\.config\garmin\connect-personal-api-key"
+```
+
 ## Add to Your AI Client
 
 Add this entry to your client's MCP config, with `/path/to/uvx` replaced by the output of `which uvx` (desktop apps don't see your terminal's `PATH`). If the file already has `"mcpServers"`, add just the `"ricelo"` entry inside it.
@@ -44,6 +49,8 @@ Add this entry to your client's MCP config, with `/path/to/uvx` replaced by the 
 | VS Code | **MCP: Open User Configuration**; use `"servers"` instead of `"mcpServers"` and add `"type": "stdio"` to the entry |
 | Claude Code | `claude mcp add ricelo -- uvx ricelo-running-science@latest` |
 | Codex | `codex mcp add ricelo -- uvx ricelo-running-science@latest` |
+
+On Windows, get the path with `where.exe uvx` and write it with forward slashes, e.g. `"C:/Users/you/.local/bin/uvx.exe"`; `~` in the paths above is your user folder, and Claude Desktop is quit from its system-tray icon.
 
 To pass the key in the config instead of the key file, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }`. ChatGPT, claude.ai on the web and mobile apps only support remote MCP servers, so they can't run ricelo.
 
