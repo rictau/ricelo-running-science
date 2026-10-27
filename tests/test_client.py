@@ -196,3 +196,22 @@ def test_today_falls_back_to_host_date(monkeypatch):
 
     monkeypatch.setattr(client, "get_profile", fail)
     assert client.today() == date.today()
+
+
+def test_dashboard_max_hr_prefers_garmin_setting(monkeypatch):
+    from ricelo import cli
+
+    monkeypatch.setattr(cli.default_client, "get_heart_rate_zones", lambda: [{"sport": "DEFAULT", "maxHeartRateUsed": 185}])
+    assert cli.garmin_max_hr() == 185.0
+    monkeypatch.setattr(
+        cli.default_client,
+        "get_heart_rate_zones",
+        lambda: [{"sport": "DEFAULT", "maxHeartRateUsed": 185}, {"sport": "RUNNING", "maxHeartRateUsed": 188}],
+    )
+    assert cli.garmin_max_hr() == 188.0
+
+    def fail():
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(cli.default_client, "get_heart_rate_zones", fail)
+    assert cli.garmin_max_hr() is None

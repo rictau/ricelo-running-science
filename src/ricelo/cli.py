@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import sys
 from datetime import timedelta
-from pathlib import Path
 from typing import Optional
 
 import typer
 from rich.console import Console
 
 from .client import GarminAuthError, default_client
-from .fit import extract_and_parse_fit, fetch_activity_with_laps
+from .fit import extract_and_parse_fit, fetch_activity_with_laps, measured_best_efforts
 from .models import Activity
 from .performance import (
     aggregate_volume,
@@ -19,7 +18,6 @@ from .performance import (
     calculate_fitness_fatigue,
     calculate_vdot,
     compare_activities,
-    find_best_efforts,
     find_best_empirical_vdot,
     get_vdot_race_predictions,
     get_vdot_training_paces,
@@ -150,7 +148,7 @@ def best_efforts(
     try:
         raw_list = default_client.search_all_activities(max_activities=limit)
         activities = [Activity.from_api_dict(a) for a in raw_list]
-        bests = find_best_efforts(activities)
+        bests = measured_best_efforts(default_client, activities)
         if not bests:
             console.print("[yellow]No qualifying benchmark activities found.[/yellow]")
             return
@@ -270,11 +268,26 @@ def download_activity(
         sys.exit(1)
 
 
+def garmin_max_hr() -> float | None:
+    """Max HR from the athlete's Garmin heart-rate zone settings (running zones preferred).
+
+    The highest HR ever recorded is a poor substitute: one optical-sensor
+    spike sets every zone too high.
+    """
+    try:
+        zones = default_client.get_heart_rate_zones()
+    except Exception:
+        return None
+    by_sport = {z.get("sport"): z.get("maxHeartRateUsed") for z in zones if z.get("maxHeartRateUsed")}
+    value = by_sport.get("RUNNING") or by_sport.get("DEFAULT")
+    return float(value) if value else None
+
+
 @app.command("dashboard")
 def export_dashboard(
     weeks: int = typer.Option(12, "--weeks", "-w", help="Number of weeks to visualize"),
     output: str = typer.Option("./garmin_dashboard.html", "--output", "-o", help="Output HTML path"),
-    max_hr: Optional[float] = typer.Option(None, "--max-hr", help="Max HR for zones (default: highest recorded)"),
+    max_hr: Optional[float] = typer.Option(None, "--max-hr", help="Max HR for zones (default: Garmin's max HR setting, else highest recorded)"),
 ) -> None:
     """Generate an interactive HTML performance dashboard with volume and fitness charts."""
     today = default_client.today()
@@ -290,9 +303,11 @@ def export_dashboard(
             all_history_acts = [Activity.from_api_dict(a) for a in all_history_raw]
         except Exception:
             all_history_acts = activities
-        best_efforts = find_best_efforts(all_history_acts)
+        best_efforts = measured_best_efforts(default_client, all_history_acts)
         fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7, end_date=today)
         vdot_info = find_best_empirical_vdot(all_history_acts, today=today)
+        if max_hr is None:
+            max_hr = garmin_max_hr()
         if max_hr is None:
             max_hr = max((a.max_hr for a in all_history_acts if a.max_hr), default=None)
 
@@ -311,6 +326,7 @@ def export_dashboard(
             weeks_scope=weeks,
             athlete_name=athlete_name,
             max_hr=max_hr,
+            today=today,
         )
         console.print(f"[bold green]✓ Dashboard generated at:[/bold green] [cyan]{saved_path.resolve()}[/cyan]")
     except Exception as exc:

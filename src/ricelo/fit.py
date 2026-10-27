@@ -9,9 +9,11 @@ from pathlib import Path
 from typing import Any
 
 import fitparse
+import numpy as np
 import pandas as pd
 
-from .models import Activity, Split
+from .models import Activity, Split, format_seconds, speed_to_pace_str
+from .performance import GPS_SHORT_TOLERANCE, RACE_DISTANCES, BestEffort, find_best_efforts
 
 # Cardiac drift needs a sustained effort to mean anything.
 MIN_DECOUPLING_MOVING_S = 20 * 60
@@ -225,3 +227,104 @@ def fetch_activity_with_laps(client: Any, activity_id: int | str) -> Activity:
     except Exception:
         pass
     return act
+
+
+
+def _timer_seconds(df: pd.DataFrame) -> pd.Series:
+    """Cumulative timer time per sample, excluding pauses.
+
+    A gap longer than MAX_SAMPLE_GAP_S with little distance covered is a
+    pause (auto-pause or a stop). It counts as one typical sample interval,
+    the running done just before the pause or after the restart, rather than
+    the whole gap. A long gap while moving (sparse smart recording) counts
+    in full.
+    """
+    gap = pd.to_datetime(df["timestamp"]).diff().dt.total_seconds().fillna(0.0)
+    moved = df["distance"].diff().fillna(0.0)
+    paused = (gap > MAX_SAMPLE_GAP_S) & (moved < MIN_MOVING_SPEED_MPS * gap)
+    typical = float(gap[gap > 0].median()) if (gap > 0).any() else 0.0
+    return gap.where(~paused, gap.clip(upper=typical)).cumsum()
+
+
+# A segment counts only if the speed stream covers at least this share of
+# its GPS distance. GPS jumps add distance the speed sensor never saw: a
+# 2018 run measured a 22:35 "5K" from a stretch whose speed readings
+# averaged about 6:50 /km.
+MIN_SPEED_DISTANCE_AGREEMENT = 0.9
+
+
+def best_segment_seconds(records_df: pd.DataFrame, distance_m: float) -> float | None:
+    """Fastest timer time over any continuous stretch of distance_m, from the record stream."""
+    if records_df.empty or "distance" not in records_df or "timestamp" not in records_df:
+        return None
+    speed_col = next((c for c in ("enhanced_speed", "speed") if c in records_df), None)
+    cols = ["timestamp", "distance"] + ([speed_col] if speed_col else [])
+    df = records_df[cols].dropna(subset=["timestamp", "distance"]).sort_values("timestamp").reset_index(drop=True)
+    if df.empty or float(df["distance"].iloc[-1] - df["distance"].iloc[0]) < distance_m:
+        return None
+    dist = np.maximum.accumulate(df["distance"].to_numpy(dtype=float))
+    timer = _timer_seconds(df)
+    t = timer.to_numpy(dtype=float)
+    ends = dist + distance_m
+    valid = ends <= dist[-1]
+    # Time at which each start point has covered distance_m, interpolated between samples.
+    seg = np.interp(ends, dist, t) - t
+    valid &= seg > 0
+    if speed_col:
+        # Distance by integrating the speed stream over the same stretch.
+        speed_dist = (df[speed_col].fillna(0.0) * timer.diff().fillna(0.0)).cumsum().to_numpy(dtype=float)
+        covered = np.interp(ends, dist, speed_dist) - speed_dist
+        valid &= covered >= distance_m * MIN_SPEED_DISTANCE_AGREEMENT
+    seg = seg[valid]
+    return float(seg.min()) if seg.size else None
+
+
+def measured_best_efforts(client: Any, activities: list[Activity], candidates: int = 3) -> list[BestEffort]:
+    """
+    Personal records with race-distance times measured from FIT files.
+
+    find_best_efforts can only estimate a race-distance time from a longer
+    run's average pace. For each race distance this downloads the FIT files
+    of the `candidates` runs with the fastest average pace that cover the
+    distance, and measures the fastest continuous segment of that distance
+    in each. A run that is GPS-short of the distance counts as that distance
+    in its whole time. Categories with no measurable FIT file keep the
+    estimate.
+    """
+    efforts = {e.category: e for e in find_best_efforts(activities)}
+    runs = [a for a in activities if a.start_time_local and a.avg_speed_mps > 0 and "run" in a.activity_type.lower()]
+    records: dict[int, pd.DataFrame | None] = {}
+
+    for category, race_m, _ in RACE_DISTANCES:
+        pool = sorted(
+            (a for a in runs if a.distance_m >= race_m * GPS_SHORT_TOLERANCE),
+            key=lambda a: a.avg_speed_mps,
+            reverse=True,
+        )[:candidates]
+        best: tuple[float, Activity] | None = None
+        for a in pool:
+            if a.distance_m <= race_m:
+                seg = a.duration_s
+            else:
+                if a.activity_id not in records:
+                    try:
+                        records[a.activity_id] = parse_fit_download(client.download_activity_bytes(a.activity_id)).records_df
+                    except Exception:
+                        records[a.activity_id] = None
+                df = records[a.activity_id]
+                seg = best_segment_seconds(df, race_m) if df is not None else None
+            if seg and (best is None or seg < best[0]):
+                best = (seg, a)
+        if best is None:
+            continue
+        seg, a = best
+        where = f"; fastest stretch of a {a.distance_km:.2f} km run" if a.distance_m > race_m * 1.01 else ""
+        efforts[category] = BestEffort(
+            category=category,
+            activity_id=a.activity_id,
+            activity_name=a.name,
+            date_str=a.start_time_local[:10],
+            value_display=f"{speed_to_pace_str(race_m / seg)} ({format_seconds(seg)}{where})",
+            raw_value=race_m / seg,
+        )
+    return list(efforts.values())

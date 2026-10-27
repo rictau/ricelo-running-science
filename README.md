@@ -9,7 +9,7 @@
 
 A 100% self-contained, native running performance analytics engine and Model Context Protocol (MCP) server powered by Garmin Connect's official **Personal API**.
 
-Built to deliver high-resolution running mechanics, endurance training load curves (Banister CTL / ATL / TSB), lap-by-lap cardiac drift (aerobic decoupling), sub-integer VO2 max progression extracted from raw binary `.FIT` sensor streams, and multi-biometric recovery readiness.
+Built to deliver high-resolution running mechanics, endurance training load curves (Banister CTL / ATL / TSB), cardiac drift (aerobic decoupling) from the FIT sample stream, sub-integer VO2 max progression extracted from raw binary `.FIT` sensor streams, and multi-biometric recovery readiness.
 
 ---
 
@@ -21,9 +21,10 @@ Built to deliver high-resolution running mechanics, endurance training load curv
 - [Client Installation Guide](#client-installation-guide)
   - [A. Codex CLI / Codex App](#a-codex-cli--codex-app)
   - [B. Cursor](#b-cursor)
-  - [C. Claude Desktop & Claude Code](#c-claude-desktop)
-  - [D. Antigravity IDE](#d-antigravity-ide)
-  - [E. Zero-Clone Remote Distribution via uvx](#e-zero-clone-remote-distribution-via-uvx)
+  - [C. Claude Desktop](#c-claude-desktop)
+  - [D. Claude Code](#d-claude-code)
+  - [E. Antigravity IDE](#e-antigravity-ide)
+  - [F. Zero-Clone Remote Distribution via uvx](#f-zero-clone-remote-distribution-via-uvx)
 - [CLI Features](#cli-features-ricelo--ricelo-cli)
 - [Sports Science Reference](#sports-science-reference)
   - [1. Efficiency: Efficiency Factor (EF)](#1-efficiency-efficiency-factor-ef-performancepy)
@@ -54,7 +55,7 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 │  3. get_training_volume            → Weekly or monthly running mileage │
 │  4. get_fitness_and_freshness      → Daily CTL Fitness / ATL Fatigue   │
 │  5. get_personal_records           → Career Running PRs (42K, 21K, etc)│
-│  6. get_readiness_assessment       → Sleep + HRV + Body Battery + RHR  │
+│  6. get_readiness_assessment       → Sleep + HRV + Body Battery        │
 │  7. get_acwr_injury_risk           → 7d acute vs 28d chronic sweet spot│
 │  8. get_vdot_paces                 → Daniels VDOT & prescribed paces   │
 │  9. list_activities                → Recent activities & Garmin IDs    │
@@ -64,10 +65,10 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 ┌────────────────────────────────────────────────────────────────────────┐
 │                     Local Analytics Engine                             │
 │                                                                        │
-│  • client.py      Native token exchange and auto-refresh (Zero 3rd)    │
-│  • performance.py Banister model, ACWR, VDOT, Decoupling, Career PRs   │
+│  • client.py      Native token exchange & auto-refresh (no Garmin SDK) │
+│  • performance.py Banister model, ACWR, VDOT, Career PRs               │
 │  • recovery.py    Multi-biometric readiness synthesis                  │
-│  • fit.py         Binary .FIT parser (Message 140 Sub-integer VO2 max) │
+│  • fit.py         .FIT parser: laps, drift, best efforts, VO2 max      │
 │  • reporting.py   Self-contained interactive visual dashboard          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ HTTPS (Bearer Token)
@@ -84,13 +85,13 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 | Tool Name | Parameters | What It Computes & Returns |
 | :--- | :--- | :--- |
 | **`analyze_run`** | `activity_id: int` | Converts speed to pace (`MM:SS /km`), formats elevation and cadence, and calculates **Aerobic Decoupling (Cardiac Drift %)** between the first half and second half of the moving time, from the FIT file's sample stream (runs of 20+ minutes). Returns the watch's laps from the FIT file and an endurance stability diagnosis (`<5% stable` vs `>8% fatigue`). |
-| **`compare_runs`** | `activity_id_a: int`, `activity_id_b: int` | Automates side-by-side run comparisons: computes exact **Pace Deltas** (s/km), **Heart Rate Deltas** (bpm), **Efficiency Factor Deltas** (Speed/HR ratio), and elevation differentials with verbal verdicts. |
+| **`compare_runs`** | `activity_id_a: int`, `activity_id_b: int` | Automates side-by-side run comparisons: computes exact **Pace Deltas** (s/km), **Heart Rate Deltas** (bpm), **Efficiency Factor Deltas** (Speed/HR ratio), elevation differentials and **Cardiac Drift** with verbal verdicts. |
 | **`get_training_volume`** | `weeks: int = 12`, `frequency: str = "W"` | Periodizes training history: aggregates distance (km), duration (hours), elevation climb (m), and calories burned by week or month, broken down across running sessions. |
 | **`get_fitness_and_freshness`** | `days: int = 60` | Models long-term training stress balance using standard endurance mathematics: **CTL (Chronic Training Load / Fitness: 42-day rolling base)**, **ATL (Acute Training Load / Fatigue: 7-day stress)**, and **TSB (Form / Freshness)**. |
-| **`get_personal_records`** | *None* | Scans your entire running history for milestone records: Marathon (42.2K), Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, and Max Elevation Gain. A run counts toward a race distance only if it covers that distance; for a longer run, the time shown is the race distance at the run's average pace. |
-| **`get_readiness_assessment`** | *None* | Synthesizes your biometrics: Sleep score, total sleep, deep and REM durations, overnight HRV average vs weekly baseline, Body Battery highest / charged, and resting HR into an actionable daily training recommendation. Gives no verdict when last night's sleep and HRV are both missing. |
+| **`get_personal_records`** | *None* | Scans your entire running history for milestone records: Marathon (42.2K), Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, and Max Elevation Gain. Race-distance times are the fastest continuous stretch of that distance, measured from the FIT files of the 3 runs with the fastest average pace for each distance; stretches where GPS distance disagrees with the watch's speed readings are skipped. |
+| **`get_readiness_assessment`** | *None* | Synthesizes last night's sleep score and stages, overnight HRV status and Body Battery into a daily training recommendation. Gives no verdict when sleep and HRV are both missing; they are only recorded if the watch is worn overnight. Resting HR and stress come from Garmin's daily summary, which the Personal API does not provide, so they show N/A. |
 | **`get_acwr_injury_risk`** | *None* | Computes **Acute-to-Chronic Workload Ratio (Gabbett 2016)** comparing 7-day acute fatigue against 28-day baseline conditioning to diagnose injury risk (`Sweet Spot 0.80 - 1.30` vs `Danger Zone > 1.50`). |
-| **`get_vdot_paces`** | `distance_m: float?`, `duration_s: float?` | Calculates **Jack Daniels VDOT**, equivalent race finish predictions (5K, 10K, Half, Full), and exact training target paces (Easy, Marathon, Threshold, Interval, Repetition) based on your best race-distance effort of the last 365 days (runs tagged as races in Garmin Connect take priority). |
+| **`get_vdot_paces`** | `distance_m: float?`, `duration_s: float?` | Calculates **Jack Daniels VDOT**, equivalent race finish predictions (5K, 10K, Half, Full), and exact training target paces (Easy, Marathon, Threshold, Interval, Repetition) based on your best race-distance effort of the last 365 days (runs tagged as races in Garmin Connect take priority; the output notes when the benchmark is not a tagged race). |
 | **`list_activities`** | `limit: int = 20`, `activity_type: str?` | Lists recent activities, newest first, with the Garmin activity IDs that `analyze_run` and `compare_runs` take. |
 
 ---
@@ -106,6 +107,8 @@ Run this in your terminal to save your key to `~/.config/garmin/connect-personal
 printf "Enter GARMIN_PERSONAL_API_KEY (typing hidden): " && read -s val && echo && mkdir -p ~/.config/garmin && echo "$val" > ~/.config/garmin/connect-personal-api-key && chmod 600 ~/.config/garmin/connect-personal-api-key && echo "Saved to ~/.config/garmin/connect-personal-api-key"
 ```
 
+Alternatively, set the `GARMIN_PERSONAL_API_KEY` environment variable; it takes precedence over the file. The project's `.mcp.json` passes it through to the server.
+
 ### Step 2: Verify Connection
 ```bash
 uv run ricelo auth
@@ -118,12 +121,14 @@ uv run ricelo auth
 ### A. Codex CLI / Codex App
 Add the server globally using the Codex CLI:
 ```bash
-codex mcp add ricelo-running-science -- /Users/ricki/.local/bin/uv run --directory /Users/ricki/Documents/github/exploration/garmin ricelo-running-science-mcp
+codex mcp add ricelo-running-science -- uv run --directory /path/to/ricelo-running-science ricelo-running-science-mcp
 ```
 To verify in Codex:
 ```bash
 codex mcp list
 ```
+
+In the examples below, replace `/path/to/ricelo-running-science` with where you cloned this repo, and `/path/to/uv` with the output of `which uv` (desktop apps often don't see your shell's `PATH`, so use the full path). The server reads your API key from `~/.config/garmin/connect-personal-api-key` (see Quick Start); to pass it from the config instead, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }` to the server entry.
 
 ### B. Cursor
 Cursor supports both global and project-level configs:
@@ -132,11 +137,11 @@ Cursor supports both global and project-level configs:
   {
     "mcpServers": {
       "ricelo-running-science": {
-        "command": "/Users/ricki/.local/bin/uv",
+        "command": "/path/to/uv",
         "args": [
           "run",
           "--directory",
-          "/Users/ricki/Documents/github/exploration/garmin",
+          "/path/to/ricelo-running-science",
           "ricelo-running-science-mcp"
         ]
       }
@@ -146,16 +151,16 @@ Cursor supports both global and project-level configs:
 * **Project Level (`.cursor/mcp.json`):** Committed directly in this repo. Whenever you open this directory in Cursor, the MCP server is bound automatically.
 
 ### C. Claude Desktop
-Add to your `~/Library/Application Support/Claude/claude_desktop_config.json`:
+In Claude Desktop, open Settings → Developer → **Edit Config** (on macOS this is `~/Library/Application Support/Claude/claude_desktop_config.json`), add the server, and restart the app:
 ```json
 {
   "mcpServers": {
     "ricelo-running-science": {
-      "command": "/Users/ricki/.local/bin/uv",
+      "command": "/path/to/uv",
       "args": [
         "run",
         "--directory",
-        "/Users/ricki/Documents/github/exploration/garmin",
+        "/path/to/ricelo-running-science",
         "ricelo-running-science-mcp"
       ]
     }
@@ -163,17 +168,23 @@ Add to your `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-### D. Antigravity IDE
+### D. Claude Code
+This repo includes a project-level `.mcp.json`, so Claude Code loads the server automatically when started in this directory (it asks once for approval). It reads the key from the `GARMIN_PERSONAL_API_KEY` environment variable. To add the server for all projects instead:
+```bash
+claude mcp add ricelo-running-science -e GARMIN_PERSONAL_API_KEY=your-key -- uv run --directory /path/to/ricelo-running-science ricelo-running-science-mcp
+```
+
+### E. Antigravity IDE
 Configured in `~/.gemini/config/mcp_config.json`:
 ```json
 {
   "mcpServers": {
     "ricelo-running-science": {
-      "command": "/Users/ricki/.local/bin/uv",
+      "command": "/path/to/uv",
       "args": [
         "run",
         "--directory",
-        "/Users/ricki/Documents/github/exploration/garmin",
+        "/path/to/ricelo-running-science",
         "ricelo-running-science-mcp"
       ]
     }
@@ -181,7 +192,7 @@ Configured in `~/.gemini/config/mcp_config.json`:
 }
 ```
 
-### E. Zero-Clone Remote Distribution via `uvx`
+### F. Zero-Clone Remote Distribution via `uvx`
 Any user on another machine can run this MCP directly from GitHub without cloning:
 ```json
 {
@@ -212,14 +223,14 @@ For quick queries in your terminal without using an AI model:
 | `volume` | Weekly or monthly volume breakdown (distance, hours, elevation, sports) | `uv run ricelo volume -w 8 -f W` |
 | `fitness` | Fitness (CTL), Fatigue (ATL), and Form (TSB) training load progression | `uv run ricelo fitness -d 30` |
 | `compare` | Side-by-side comparison of two runs (pace, HR efficiency, elevation, drift)| `uv run ricelo compare 24762216656 24841273382` |
-| `best-efforts` | Historical landmark running efforts (Marathon, Half, 10K, 5K, Max Vert) | `uv run ricelo best-efforts` |
-| `readiness` | Daily recovery synthesis: Sleep score + Overnight HRV + Body Battery + RHR | `uv run ricelo readiness` |
+| `best-efforts` | Landmark running efforts (Marathon, Half, 10K, 5K from measured FIT segments; Longest; Max Vert) over the last `-n` activities | `uv run ricelo best-efforts -n 2000` |
+| `readiness` | Daily recovery synthesis: Sleep score + Overnight HRV + Body Battery | `uv run ricelo readiness` |
 | `download` | Download and parse original binary `.FIT` file telemetry streams | `uv run ricelo download 24841273382` |
 | `acwr` | Acute-to-Chronic Workload Ratio & soft-tissue injury risk gauge | `uv run ricelo acwr` |
 | `vdot` | Jack Daniels VDOT, equivalent race predictions, and target paces | `uv run ricelo vdot` |
-| `dashboard` | Generate interactive standalone HTML dashboard with Chart.js | `uv run ricelo dashboard -w 12` |
+| `dashboard` | Generate interactive standalone HTML dashboard with Chart.js (HR zones from your Garmin max HR, or `--max-hr`) | `uv run ricelo dashboard -w 12` |
 
-*(Note: `garmin-cli` is also preserved as a command alias).*
+*(Note: `ricelo-cli` and `garmin-cli` are also available as command aliases.)*
 
 ---
 
@@ -238,15 +249,14 @@ A rising EF across weeks at similar training paces indicates improved running ec
 
 ---
 
-### 2. Aerobic Efficiency: Cardiac Drift & Decoupling (`performance.py`)
-During steady aerobic running, heart rate often drifts upward despite constant pace due to cutaneous vasodilation, dehydration, and motor unit fatigue. Aerobic Decoupling evaluates cardiovascular stability by comparing the first half ($\text{EF}_1$) against the second half ($\text{EF}_2$):
+### 2. Aerobic Efficiency: Cardiac Drift & Decoupling (`fit.py`)
+During steady aerobic running, heart rate often drifts upward despite constant pace due to cutaneous vasodilation, dehydration, and motor unit fatigue. Aerobic Decoupling evaluates cardiovascular stability by comparing the first half ($\text{EF}_1$) against the second half ($\text{EF}_2$) of the moving time, using the FIT file's speed and heart-rate samples (pauses excluded; needs at least 20 minutes):
 
-$$\text{Decoupling Rate } (Pw:Hr) = \left(\frac{\text{EF}_1 - \text{EF}_2}{\text{EF}_1}\right) \times 100\%$$
+$$\text{Decoupling Rate } (Pa:Hr) = \left(\frac{\text{EF}_1 - \text{EF}_2}{\text{EF}_1}\right) \times 100\%$$
 
 | Decoupling | Status | Coaching Verdict |
 | :--- | :--- | :--- |
-| **$< 3.0\%$** | **Elite Aerobic Base** | Cardiovascularly stable; stroke volume maintained throughout the run. |
-| **$3.0\% - 5.0\%$** | **Aerobically Stable** | Established aerobic conditioning. Ready to progress duration or intensity. |
+| **$< 5.0\%$** | **Aerobically Stable** | Cardiovascularly stable; established aerobic conditioning. Ready to progress duration or intensity. |
 | **$5.0\% - 8.0\%$** | **Moderate Drift** | Normal on long runs ($>20\text{ km}$) or warm weather conditions. |
 | **$> 8.0\%$** | **Aerobic Fatigue / Strain** | Significant cardiac drift. Indicates dehydration, heat strain, or aerobic base deficiency. |
 
@@ -269,22 +279,26 @@ Rooted in the **Impulse-Response Model** (Dr. Eric Banister, 1975) and the **Per
    *(Fallback to HR Reserve TRIMP if TE is absent).*
 
 2. **Exponentially Weighted Moving Averages (EWMA):**
-   $$\text{CTL}_t = \text{Load}_t \cdot \alpha_{\text{CTL}} + \text{CTL}_{t-1} \cdot (1 - \alpha_{\text{CTL}}), \quad \alpha_{\text{CTL}} = \frac{2}{42 + 1}$$
-   $$\text{ATL}_t = \text{Load}_t \cdot \alpha_{\text{ATL}} + \text{ATL}_{t-1} \cdot (1 - \alpha_{\text{ATL}}), \quad \alpha_{\text{ATL}} = \frac{2}{7 + 1}$$
+   $$\text{CTL}_t = \text{Load}_t \cdot \alpha_{\text{CTL}} + \text{CTL}_{t-1} \cdot (1 - \alpha_{\text{CTL}}), \quad \alpha_{\text{CTL}} = 1 - e^{-1/42}$$
+   $$\text{ATL}_t = \text{Load}_t \cdot \alpha_{\text{ATL}} + \text{ATL}_{t-1} \cdot (1 - \alpha_{\text{ATL}}), \quad \alpha_{\text{ATL}} = 1 - e^{-1/7}$$
    $$\text{TSB}_t = \text{CTL}_t - \text{ATL}_t$$
+
+   The model is warmed up over 126 days (3 CTL time constants) before the reported window.
 
 | Metric | Scientific Concept | Time Constant ($\tau$) | Status Interpretation |
 | :--- | :--- | :--- | :--- |
 | **CTL (Fitness)** | Long-term adaptations (capillaries, mitochondria) | 42 days | Higher values indicate deeper aerobic conditioning base. |
 | **ATL (Fatigue)** | Short-term acute metabolic and neuromuscular stress | 7 days | Rises quickly after hard workouts or high weekly mileage. |
-| **TSB (Form)** | Balance between fitness and fatigue ($\text{CTL} - \text{ATL}$) | Daily | $>+15$ Peaked; $+5 \text{ to } +15$ Race Ready; $-10 \text{ to } +5$ Base; $-30 \text{ to } -10$ Productive Load; $<-30$ Overreaching. |
+| **TSB (Form)** | Balance between fitness and fatigue ($\text{CTL} - \text{ATL}$) | Daily | $>+15$ Very Fresh; $+5 \text{ to } +15$ Fresh / Race Ready; $-10 \text{ to } +5$ Optimal Base; $-30 \text{ to } -10$ Productive Load; $<-30$ High Volume Accumulation. |
 
 ---
 
 ### 5. Injury Risk Prevention: ACWR (`performance.py`)
 Based on **Dr. Tim Gabbett (2016)** (*British Journal of Sports Medicine*). Resolves the training-injury paradox: *high chronic loads protect against injury, but rapid acute spikes cause injuries.*
 
-$$\text{ACWR} = \frac{\text{Acute Workload (Last 7 Days)}}{\text{Chronic Workload (Preceding 28 Days / 4)}}$$
+$$\text{ACWR} = \frac{\text{Acute Workload (Last 7 Days)}}{\text{Chronic Workload (Last 28 Days / 4)}}$$
+
+The chronic window includes the acute week (the "coupled" ACWR).
 
 | ACWR Range | Zone | Risk Diagnosis |
 | :--- | :--- | :--- |
@@ -304,18 +318,18 @@ Developed by **Dr. Jack Daniels & Jimmy Gilbert (1979)** in *Oxygen Power*. **VD
 2. **Fractional Utilization ($\theta(t)$ over duration $t$ in minutes):**
    $$\theta(t) = 0.80 + 0.1894393 \cdot e^{-0.012778 \cdot t} + 0.2989558 \cdot e^{-0.1932605 \cdot t}$$
 
-3. **VDOT from Benchmark Performance ($d$ meters in $t$ minutes):**
+3. **VDOT from Benchmark Performance ($d$ meters in $t$ minutes):** the benchmark is the best 5K, 10K, half or marathon effort of the last 365 days, preferring runs tagged as races in Garmin Connect.
    $$\text{VDOT} = \frac{VO_2(d / t)}{\theta(t)}$$
 
 4. **Target Paces:** Derived by inverting the quadratic equation for target velocity $v$ at prescribed intensities:
 
 | Training Zone | % of VDOT | Target Stimulus & Protocol |
 | :--- | :--- | :--- |
-| **Easy (E-Pace)** | $59\% - 74\%$ | Cellular adaptations, capillarization, fat oxidation. Recovery & long runs. |
-| **Marathon (M-Pace)** | $75\% - 84\%$ | Race pace economy, glycogen sparing. Steady state runs ($10 - 25\text{ km}$). |
-| **Threshold (T-Pace)** | $83\% - 88\%$ | Elevates lactate clearance speed. Sustainable for $\sim 60\text{ min}$ (tempo runs & cruise intervals). |
-| **Interval (I-Pace)** | $95\% - 100\%$ | Stresses $\text{VO}_2\text{ max}$ & stroke volume. $3-5\text{ min}$ reps ($800\text{m}-1200\text{m}$) with equal jog rest. |
-| **Repetition (R-Pace)** | $105\% - 120\%$ | Anaerobic speed, leg turnover, economy. Short reps ($200\text{m}-400\text{m}$) with full recovery. |
+| **Easy (E-Pace)** | $62\% - 70\%$ | Cellular adaptations, capillarization, fat oxidation. Recovery & long runs. |
+| **Marathon (M-Pace)** | $80\%$ | Race pace economy, glycogen sparing. Steady state runs ($10 - 25\text{ km}$). |
+| **Threshold (T-Pace)** | $88\%$ | Elevates lactate clearance speed. Sustainable for $\sim 60\text{ min}$ (tempo runs & cruise intervals). |
+| **Interval (I-Pace)** | $97.5\%$ | Stresses $\text{VO}_2\text{ max}$ & stroke volume. $3-5\text{ min}$ reps ($800\text{m}-1200\text{m}$) with equal jog rest. |
+| **Repetition (R-Pace)** | $105\%$ | Anaerobic speed, leg turnover, economy. Short reps ($200\text{m}-400\text{m}$) with full recovery. |
 
 *Race predictions for 5K, 10K, Half, and Full Marathon are solved via numerical bisection for $f(t_{\text{pred}}) = \frac{VO_2(d / t_{\text{pred}})}{\theta(t_{\text{pred}})} - \text{VDOT} = 0$.*
 
@@ -324,7 +338,13 @@ Developed by **Dr. Jack Daniels & Jimmy Gilbert (1979)** in *Oxygen Power*. **VD
 
 ## Testing
 
-Run unit tests via `pytest`:
+Run unit tests via `pytest` (declared as a dev dependency):
 ```bash
-uv run --with pytest pytest
+uv run pytest
 ```
+
+---
+
+## License
+
+MIT. See [LICENSE](LICENSE).
