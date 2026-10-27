@@ -272,3 +272,69 @@ def test_acwr_and_vdot():
     preds = get_vdot_race_predictions(vdot)
     assert "5k" in preds
     assert "marathon" in preds
+
+
+def test_activity_from_api_dict_tolerates_null_fields():
+    # Garmin sends null distance/speed for activities without GPS (e.g. strength).
+    act = Activity.from_api_dict({
+        "activityId": 1,
+        "activityName": "Strength",
+        "activityType": {"typeKey": "strength_training"},
+        "startTimeLocal": "2026-10-20 07:00:00",
+        "distance": None,
+        "duration": 1800.0,
+        "elapsedDuration": None,
+        "averageSpeed": None,
+        "splitSummaries": [{"distance": None, "duration": 600.0, "averageSpeed": None}],
+    })
+    assert act.distance_m == 0.0
+    assert act.avg_speed_mps == 0.0
+    assert act.elapsed_duration_s == 1800.0
+    assert act.splits[0].distance_m == 0.0
+
+
+def test_compare_activities_reports_equal():
+    a = Activity(activity_id=1, distance_m=5000, duration_s=1500, avg_speed_mps=3.33, avg_hr=150, elevation_gain_m=20)
+    b = Activity(activity_id=2, distance_m=5000, duration_s=1500, avg_speed_mps=3.33, avg_hr=150, elevation_gain_m=20)
+    assert {m.metric_name: m.verdict for m in compare_activities(a, b)} == {
+        "Distance": "Equal",
+        "Moving Duration": "Equal",
+        "Average Pace": "Equal",
+        "Average Heart Rate": "Equal",
+        "Efficiency Factor (Speed/HR)": "Equal",
+        "Elevation Gain": "Equal",
+    }
+
+
+def test_dashboard_escapes_activity_names(tmp_path):
+    from ricelo.reporting import generate_html_dashboard
+
+    evil = '</script><img src=x onerror=alert(1)>'
+    act = Activity(
+        activity_id=1,
+        name=evil,
+        activity_type="running",
+        start_time_local="2026-10-20T07:00:00",
+        distance_m=5000,
+        duration_s=1500,
+        avg_speed_mps=3.33,
+    )
+    out = generate_html_dashboard(
+        [act],
+        aggregate_volume([act]),
+        calculate_fitness_fatigue([act], days=14),
+        output_path=tmp_path / "dash.html",
+        vo2max_csv_path=tmp_path / "missing.csv",
+        vdot_info={
+            "vdot": 40.0,
+            "benchmark_activity_name": evil,
+            "benchmark_distance": "5K",
+            "benchmark_time": "25:00",
+            "benchmark_date": "2026-10-20",
+            "training_paces": {},
+            "race_predictions": {},
+        },
+    )
+    page = out.read_text(encoding="utf-8")
+    assert evil not in page
+    assert "escapeHtml(act.name)" in page

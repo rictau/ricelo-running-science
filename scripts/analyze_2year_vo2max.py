@@ -14,7 +14,7 @@ from ricelo.client import default_client
 
 def main():
     print("Fetching activities from 2024-10-01 to 2026-10-25...")
-    acts = default_client.search_activities(start_date="2024-10-01", limit=500, activity_type="running")
+    acts = default_client.search_all_activities(start_date="2024-10-01", activity_type="running")
     print(f"Found {len(acts)} running activities.")
 
     # Sort chronologically
