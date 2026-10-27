@@ -114,7 +114,8 @@ def fitness_trends(
     days: int = typer.Option(60, "--days", "-d", help="Number of days to show fitness timeline"),
 ) -> None:
     """Calculate Fitness (CTL), Fatigue (ATL), and Form (TSB) training load curves."""
-    start_date = (date.today() - timedelta(days=days + 60)).isoformat()
+    # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
+    start_date = (date.today() - timedelta(days=days + 150)).isoformat()
     try:
         raw_list = default_client.search_activities(start_date=start_date, limit=300)
         activities = [Activity.from_api_dict(a) for a in raw_list]

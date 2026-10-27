@@ -145,14 +145,25 @@ def calculate_fitness_fatigue(
     """
     Calculate Chronic Training Load (CTL / Fitness), Acute Training Load (ATL / Fatigue),
     and Training Stress Balance (TSB / Form) across a daily timeline.
-    Standard endurance model:
-    - ATL decay constant = 7 days (alpha = 2 / (7 + 1))
-    - CTL decay constant = 42 days (alpha = 2 / (42 + 1))
+    Standard endurance model (Banister impulse-response, Coggan PMC form):
+    - ATL time constant = 7 days, CTL time constant = 42 days.
+    - Each is an exponentially weighted moving average with
+      alpha = 1 - exp(-1 / tau), so a day's load decays with time constant
+      tau: ATL halves about every 4.9 days, CTL about every 29 days.
+
+    (Before 2026-10-27 this used the generic N-day EMA smoothing factor
+    alpha = 2 / (N + 1), which decays roughly twice as fast as the
+    Banister time constants and overstated how quickly fitness is lost
+    during a taper or a rest block.)
     """
     if not end_date:
         end_date = date.today()
 
-    start_date = end_date - timedelta(days=days + 42)  # Extra 42 days warm-up for CTL
+    # Warm up the model for 3 CTL time constants (126 days) before the
+    # returned window, so the zero initial condition has decayed to
+    # ~5% (exp(-3)) by the time the window starts. Callers should fetch
+    # at least this much activity history.
+    start_date = end_date - timedelta(days=days + 126)
 
     # Map daily load
     daily_loads: dict[str, float] = defaultdict(float)
@@ -165,8 +176,8 @@ def calculate_fitness_fatigue(
 
     atl = 0.0
     ctl = 0.0
-    atl_decay = 2.0 / (7.0 + 1.0)
-    ctl_decay = 2.0 / (42.0 + 1.0)
+    atl_decay = 1.0 - math.exp(-1.0 / 7.0)
+    ctl_decay = 1.0 - math.exp(-1.0 / 42.0)
 
     cur_dt = start_date
     all_records: list[DailyFitnessRecord] = []
@@ -178,7 +189,15 @@ def calculate_fitness_fatigue(
         # Exponential moving average
         atl = (load * atl_decay) + (atl * (1.0 - atl_decay))
         ctl = (load * ctl_decay) + (ctl * (1.0 - ctl_decay))
-        tsb = ctl - atl
+
+        # Round CTL/ATL first and derive TSB from the rounded values, so
+        # every record is internally consistent: a consumer recomputing
+        # CTL - ATL from the record's own fields always gets its TSB.
+        # (Deriving TSB from the unrounded values could disagree with the
+        # record's own CTL - ATL by 0.1 after rounding.)
+        ctl_r = round(ctl, 1)
+        atl_r = round(atl, 1)
+        tsb = round(ctl_r - atl_r, 1)
 
         # Determine status
         if tsb > 15:
@@ -195,9 +214,9 @@ def calculate_fitness_fatigue(
         record = DailyFitnessRecord(
             date_str=ds,
             daily_load=round(load, 1),
-            ctl_fitness=round(ctl, 1),
-            atl_fatigue=round(atl, 1),
-            tsb_form=round(tsb, 1),
+            ctl_fitness=ctl_r,
+            atl_fatigue=atl_r,
+            tsb_form=tsb,
             status=status,
         )
         all_records.append(record)

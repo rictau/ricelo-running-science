@@ -143,8 +143,9 @@ def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     - Training Stress Balance (TSB / Form = CTL - ATL)
     Returns recent daily timeline and current athlete physiological training status.
     """
-    start_date = (date.today() - timedelta(days=days + 60)).isoformat()
-    raw_list = default_client.search_activities(start_date=start_date, limit=150)
+    # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
+    start_date = (date.today() - timedelta(days=days + 150)).isoformat()
+    raw_list = default_client.search_activities(start_date=start_date, limit=300)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     timeline = calculate_fitness_fatigue(activities, days=days)
 
