@@ -26,6 +26,29 @@ class DailyRecoveryStatus:
     training_recommendation: str
 
 
+def latest_body_battery_record(records: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    """Pick the most recent Body Battery record that actually has data.
+
+    The Personal API returns one record per day, and the current day's
+    record is present but empty until readings accumulate, so taking the
+    last record unconditionally yields an all-null readiness assessment
+    every morning.
+    """
+    if not records:
+        return None
+    for record in reversed(records):
+        values = [
+            row[1]
+            for row in (record.get("bodyBatteryValuesArray") or [])
+            if isinstance(row, (list, tuple)) and len(row) > 1 and isinstance(row[1], (int, float))
+        ]
+        # The current day's record can carry an array whose values are all
+        # null, so an array alone is not evidence of data.
+        if values or record.get("charged") is not None:
+            return record
+    return records[-1]
+
+
 def evaluate_daily_readiness(
     sleep_data: dict[str, Any] | None = None,
     hrv_data: dict[str, Any] | None = None,
@@ -75,8 +98,17 @@ def evaluate_daily_readiness(
     bb_charged: int | None = None
 
     if body_battery_data:
-        bb_max = body_battery_data.get("charged") or body_battery_data.get("bodyBatteryHighestValue")
-        bb_charged = body_battery_data.get("charged")
+        if body_battery_data.get("charged") is not None:
+            bb_charged = body_battery_data.get("charged")
+        values = [
+            row[1]
+            for row in (body_battery_data.get("bodyBatteryValuesArray") or [])
+            if isinstance(row, (list, tuple)) and len(row) > 1 and isinstance(row[1], (int, float))
+        ]
+        if values:
+            bb_max = int(max(values))
+        else:
+            bb_max = body_battery_data.get("bodyBatteryHighestValue") or bb_charged
 
     # Daily summary & Resting HR
     rhr: int | None = None
@@ -106,7 +138,12 @@ def evaluate_daily_readiness(
             score_components.append(50)
         elif "low" in st:
             score_components.append(30)
-    if bb_charged is not None:
+    # Score Body Battery on its peak value, not on the day's charge total.
+    # The Personal API reports a completed day's charge as 0 even when the
+    # battery peaked normally, which would read as total exhaustion.
+    if bb_max is not None:
+        score_components.append(min(100, bb_max))
+    elif bb_charged is not None:
         score_components.append(min(100, bb_charged))
 
     composite_score = sum(score_components) / len(score_components) if score_components else 70.0

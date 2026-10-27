@@ -179,7 +179,9 @@ class GarminClient:
         resp = self._request(
             "GET",
             f"/download-service/files/activity/{activity_id}",
-            headers={"Accept": "application/zip, application/octet-stream"},
+            # The Personal API download endpoint answers 406 to a zip-only
+            # Accept header and 200 to */* (verified 2026-10-26).
+            headers={"Accept": "*/*"},
         )
         out_path = Path(output_dir).expanduser()
         out_path.mkdir(parents=True, exist_ok=True)
@@ -188,10 +190,22 @@ class GarminClient:
         return zip_file
 
     def get_daily_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
-        """Fetch daily wellness summaries across a date range."""
+        """Fetch daily wellness summaries across a date range.
+
+        The Personal API does not expose this usersummary endpoint (it
+        answers 404 for every range, verified 2026-10-26), while the sleep,
+        HRV and Body Battery services do respond. Treat a 404 as "no daily
+        summaries available" so callers such as the readiness assessment
+        degrade gracefully instead of failing on the last of their calls.
+        """
         s = start_date if isinstance(start_date, str) else start_date.isoformat()
         e = end_date if isinstance(end_date, str) else end_date.isoformat()
-        result = self.get(f"/usersummary-service/usersummary/daily/{s}/{e}")
+        try:
+            result = self.get(f"/usersummary-service/usersummary/daily/{s}/{e}")
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return []
+            raise
         return result.get("data", []) if isinstance(result, dict) else (result or [])
 
     def get_sleep_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:

@@ -20,7 +20,7 @@ from .performance import (
     get_vdot_race_predictions,
     get_vdot_training_paces,
 )
-from .recovery import evaluate_daily_readiness
+from .recovery import evaluate_daily_readiness, latest_body_battery_record
 from .reporting import generate_html_dashboard
 
 mcp = FastMCP("ricelo-running-science")
@@ -211,7 +211,7 @@ def get_readiness_assessment() -> dict[str, Any]:
     hrv_data = hrv_records[-1] if hrv_records else None
 
     bb_records = default_client.get_body_battery(yesterday_str, today_str)
-    bb_data = bb_records[-1] if bb_records else None
+    bb_data = latest_body_battery_record(bb_records)
 
     daily_records = default_client.get_daily_summaries(today_str, today_str)
     daily_data = daily_records[0] if daily_records else None
