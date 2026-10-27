@@ -10,7 +10,7 @@ Running analytics for your Garmin data, as an MCP server for AI assistants and a
 ## Quick Start
 
 1. Create a Personal API key in [Garmin Connect settings](https://connect.garmin.com/app/settings/personalApiToken).
-2. Save it (input is hidden; the file is readable only by you):
+2. Save it. The key gives access to your Garmin data, so keep it private: type it into this prompt yourself, and don't share it with anyone or paste it into an AI chat. (Input is hidden; the file is readable only by you.)
    ```bash
    printf "Garmin Personal API key: " && read -s val && echo && mkdir -p ~/.config/garmin && echo "$val" > ~/.config/garmin/connect-personal-api-key && chmod 600 ~/.config/garmin/connect-personal-api-key
    ```
