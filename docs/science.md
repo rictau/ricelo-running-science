@@ -22,6 +22,8 @@ During steady aerobic running, heart rate often drifts upward despite constant p
 Decoupling (Pa:Hr) = (EF1 − EF2) ÷ EF1 × 100%
 ```
 
+*Pa:Hr* stands for pace to heart rate: how your pace relates to your heart rate in each half of the run. If the pace holds but heart rate climbs, the two "decouple". (Cycling uses *Pw:Hr*, power to heart rate.)
+
 | Decoupling | Status | Coaching Verdict |
 | :--- | :--- | :--- |
 | **under 5%** | **Aerobically Stable** | Cardiovascularly stable; established aerobic conditioning. Ready to progress duration or intensity. |
