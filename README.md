@@ -5,7 +5,7 @@
 [![Model Context Protocol](https://img.shields.io/badge/MCP-Standard-purple.svg)](https://modelcontextprotocol.io)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rictau/ricelo-running-science/blob/master/LICENSE)
 
-Running analytics for your Garmin data, as an MCP server for AI assistants and as a command-line tool. It reads your activities through Garmin Connect's **Personal API** and computes laps and cardiac drift, training load (CTL / ATL / TSB), injury risk (ACWR), VDOT training paces, personal records and daily readiness. The formulas are documented in [docs/science.md](https://github.com/rictau/ricelo-running-science/blob/master/docs/science.md).
+Running analytics for your Garmin data, as a **local** MCP server for AI assistants and as a command-line tool. It runs on your computer and reads your activities through Garmin Connect's **Personal API**: your API key stays on your machine and data goes straight from Garmin to you, with no ricelo server in between. It computes laps and cardiac drift, training load (CTL / ATL / TSB), injury risk (ACWR), VDOT training paces, personal records and daily readiness. The formulas are documented in [docs/science.md](https://github.com/rictau/ricelo-running-science/blob/master/docs/science.md).
 
 ## Quick Start
 
@@ -93,6 +93,10 @@ uv tool install ricelo-running-science
 | `vo2max -n 8` | VO2 max to two decimals, from FIT files |
 | `download <id>` | Download and summarise an activity's FIT file |
 | `dashboard -w 12` | Standalone HTML dashboard (`--max-hr` to override Garmin's max HR) |
+
+## Privacy
+
+ricelo has no server and collects nothing. Your key is stored on your computer and only sent to Garmin. When you use ricelo from an AI app, the results you ask about are sent to that app's provider as part of the conversation, under its privacy terms. The HTML dashboard keeps your data inside the file but loads its chart library and fonts from public CDNs (jsDelivr, Google Fonts) when opened.
 
 ## Updating
 
