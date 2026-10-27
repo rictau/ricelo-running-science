@@ -114,6 +114,46 @@ def test_fitness_fatigue_tsb():
     assert any("10K" in e.category or "Longest" in e.category for e in efforts)
 
 
+def test_fitness_decay_uses_banister_time_constants():
+    # Regression test for the pre-2026-10-27 decay factors: the generic
+    # N-day EMA alpha = 2 / (N + 1) decayed CTL with a ~14-day half-life,
+    # about twice as fast as the Banister 42-day time constant (half-life
+    # ~29 days). Train daily, then stop, and check the decay rates.
+    from datetime import date, timedelta
+
+    start = date(2026, 1, 1)
+    train_days = 120
+    rest_days = 29
+    acts = [
+        Activity(
+            activity_id=i,
+            name=f"Daily Run {i}",
+            activity_type="running",
+            start_time_local=f"{start + timedelta(days=i)}T07:00:00",
+            distance_m=10000,
+            duration_s=3000,
+            elapsed_duration_s=3000,
+            avg_speed_mps=3.33,
+            aerobic_training_effect=3.5,
+        )
+        for i in range(train_days)
+    ]
+    end = start + timedelta(days=train_days + rest_days - 1)
+    timeline = calculate_fitness_fatigue(acts, days=train_days + rest_days, end_date=end)
+    assert len(timeline) == train_days + rest_days
+
+    last_train = timeline[train_days - 1]
+    after_rest = timeline[-1]
+    ctl_ratio = after_rest.ctl_fitness / last_train.ctl_fitness
+    # exp(-29 / 42) ~= 0.50; the old alpha gave ~0.25
+    assert 0.42 < ctl_ratio < 0.58
+    # ATL (7-day time constant) is almost fully gone after 29 rest days
+    assert after_rest.atl_fatigue < 0.05 * last_train.atl_fatigue
+    # Every record is internally consistent: TSB == CTL - ATL as stored
+    for r in timeline:
+        assert round(r.tsb_form, 1) == round(r.ctl_fitness - r.atl_fatigue, 1)
+
+
 def test_compare_activities():
     act_a = Activity(
         activity_id=101,
