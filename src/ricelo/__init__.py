@@ -4,4 +4,9 @@ Provides advanced activity analysis, historical performance tracking,
 fitness/fatigue modeling, recovery correlation, and MCP tools for Garmin Connect.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("ricelo-running-science")
+except PackageNotFoundError:
+    __version__ = "0.0.0"
