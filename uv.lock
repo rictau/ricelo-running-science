@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -748,7 +748,7 @@ dependencies = [
 requires-dist = [
     { name = "fitparse", specifier = ">=1.2.0" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mcp", extras = ["cli"], specifier = ">=1.30.0" },
+    { name = "mcp", extras = ["cli"], specifier = ">=1.30.0,<2.0.0" },
     { name = "pandas", specifier = ">=3.1.0" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
     { name = "rich", specifier = ">=15.0.0" },
