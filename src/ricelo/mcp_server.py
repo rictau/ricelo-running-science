@@ -114,7 +114,7 @@ def get_training_volume(weeks: int = 12, frequency: str = "W") -> list[dict[str,
     and sport distribution.
     """
     start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
-    raw_list = default_client.search_activities(start_date=start_date, limit=150)
+    raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     periods = aggregate_volume(activities, freq=frequency)
 
@@ -145,7 +145,7 @@ def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     """
     # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
     start_date = (date.today() - timedelta(days=days + 150)).isoformat()
-    raw_list = default_client.search_activities(start_date=start_date, limit=300)
+    raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     timeline = calculate_fitness_fatigue(activities, days=days)
 
@@ -179,7 +179,7 @@ def get_personal_records() -> list[dict[str, Any]]:
     Find athlete's career running personal records and landmark efforts across historical activities
     (Marathon 42.2K, Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, Max Elevation Gain).
     """
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    raw_list = default_client.search_all_activities()
     activities = [Activity.from_api_dict(a) for a in raw_list]
     bests = find_best_efforts(activities)
 
@@ -256,7 +256,9 @@ def get_acwr_injury_risk() -> dict[str, Any]:
     to assess soft-tissue injury risk and workload progression rate.
     Returns acute load (last 7 days), chronic load (28-day baseline), ratio, zone verdict, and recommendation.
     """
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    # Fetch past the fitness model's 126-day warm-up (see calculate_fitness_fatigue)
+    start_date = (date.today() - timedelta(days=60 + 150)).isoformat()
+    raw_list = default_client.search_all_activities(start_date=start_date)
     acts = [Activity.from_api_dict(a) for a in raw_list]
     timeline = calculate_fitness_fatigue(acts, days=60)
     rec = calculate_acwr(timeline)
@@ -291,7 +293,7 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
             "race_predictions": get_vdot_race_predictions(v),
         }
 
-    raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+    raw_list = default_client.search_all_activities()
     acts = [Activity.from_api_dict(a) for a in raw_list]
     vdot_data = find_best_empirical_vdot(acts)
 
@@ -313,29 +315,6 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
         "training_paces": vdot_data["training_paces"],
         "race_predictions": vdot_data["race_predictions"],
     }
-
-
-# Aliases for backward compatibility
-ricelo_analyze_run = mcp.tool(name="ricelo_analyze_run")(analyze_run)
-garmin_analyze_activity = mcp.tool(name="garmin_analyze_activity")(analyze_run)
-
-ricelo_compare_runs = mcp.tool(name="ricelo_compare_runs")(compare_runs)
-garmin_compare_activities = mcp.tool(name="garmin_compare_activities")(compare_runs)
-
-ricelo_get_training_volume = mcp.tool(name="ricelo_get_training_volume")(get_training_volume)
-garmin_get_training_volume = mcp.tool(name="garmin_get_training_volume")(get_training_volume)
-
-ricelo_get_fitness_and_freshness = mcp.tool(name="ricelo_get_fitness_and_freshness")(get_fitness_and_freshness)
-garmin_get_fitness_and_freshness = mcp.tool(name="garmin_get_fitness_and_freshness")(get_fitness_and_freshness)
-
-ricelo_get_personal_records = mcp.tool(name="ricelo_get_personal_records")(get_personal_records)
-garmin_get_best_efforts = mcp.tool(name="garmin_get_best_efforts")(get_personal_records)
-
-ricelo_get_readiness_assessment = mcp.tool(name="ricelo_get_readiness_assessment")(get_readiness_assessment)
-garmin_get_readiness_assessment = mcp.tool(name="garmin_get_readiness_assessment")(get_readiness_assessment)
-
-ricelo_get_acwr_injury_risk = mcp.tool(name="ricelo_get_acwr_injury_risk")(get_acwr_injury_risk)
-ricelo_get_vdot_paces = mcp.tool(name="ricelo_get_vdot_paces")(get_vdot_paces)
 
 
 def main():

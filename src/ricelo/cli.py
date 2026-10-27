@@ -100,7 +100,7 @@ def volume_summary(
     """Analyze weekly or monthly training volume, distance, time, and elevation."""
     start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
     try:
-        raw_list = default_client.search_activities(start_date=start_date, limit=200)
+        raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
         periods = aggregate_volume(activities, freq=freq)
         print_volume_summary(periods, title=f"Training Volume (Last {weeks} Weeks)")
@@ -117,7 +117,7 @@ def fitness_trends(
     # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
     start_date = (date.today() - timedelta(days=days + 150)).isoformat()
     try:
-        raw_list = default_client.search_activities(start_date=start_date, limit=300)
+        raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
         timeline = calculate_fitness_fatigue(activities, days=days)
         print_fitness_timeline(timeline)
@@ -156,7 +156,6 @@ def best_efforts(
         if not bests:
             console.print("[yellow]No qualifying benchmark activities found.[/yellow]")
             return
-        table = typer.rich_utils.rich_format_error if False else None  # dummy
         from rich.table import Table
         t = Table(title="Personal Bests & Landmark Efforts", header_style="bold yellow")
         t.add_column("Category", style="bold")
@@ -224,9 +223,9 @@ def get_vo2max_history(
 
         for act in raw_list:
             act_id = act.get("activityId")
-            date_str = act.get("startTimeLocal", "")[:10]
+            date_str = (act.get("startTimeLocal") or "")[:10]
             name = act.get("activityName", "Run")
-            speed = float(act.get("averageSpeed", 0.0))
+            speed = float(act.get("averageSpeed") or 0.0)
             hr = act.get("averageHR") or act.get("averageHeartRate")
             pace_str = "--:--"
             if speed > 0.1:
@@ -275,25 +274,31 @@ def download_activity(
 def export_dashboard(
     weeks: int = typer.Option(12, "--weeks", "-w", help="Number of weeks to visualize"),
     output: str = typer.Option("./garmin_dashboard.html", "--output", "-o", help="Output HTML path"),
+    max_hr: Optional[float] = typer.Option(None, "--max-hr", help="Max HR for zones (default: highest recorded)"),
 ) -> None:
     """Generate an interactive HTML performance dashboard with volume and fitness charts."""
     start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
     try:
-        raw_list = default_client.search_activities(start_date=start_date, limit=150)
+        raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
         volume = aggregate_volume(activities, freq="W")
 
         # Query all-time history for authentic career PRs, VDOT benchmark, and CTL model warm-up
         try:
-            all_history_raw = default_client.search_activities(start_date="2023-01-01", limit=150)
+            all_history_raw = default_client.search_all_activities()
             all_history_acts = [Activity.from_api_dict(a) for a in all_history_raw]
-            best_efforts = find_best_efforts(all_history_acts)
-            fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7)
-            vdot_info = find_best_empirical_vdot(all_history_acts)
         except Exception:
-            best_efforts = find_best_efforts(activities)
-            fitness = calculate_fitness_fatigue(activities, days=weeks * 7)
-            vdot_info = find_best_empirical_vdot(activities)
+            all_history_acts = activities
+        best_efforts = find_best_efforts(all_history_acts)
+        fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7)
+        vdot_info = find_best_empirical_vdot(all_history_acts)
+        if max_hr is None:
+            max_hr = max((a.max_hr for a in all_history_acts if a.max_hr), default=None)
+
+        try:
+            athlete_name = default_client.get_profile().get("displayName")
+        except Exception:
+            athlete_name = None
 
         saved_path = generate_html_dashboard(
             activities,
@@ -303,6 +308,8 @@ def export_dashboard(
             best_efforts=best_efforts,
             vdot_info=vdot_info,
             weeks_scope=weeks,
+            athlete_name=athlete_name,
+            max_hr=max_hr,
         )
         console.print(f"[bold green]✓ Dashboard generated at:[/bold green] [cyan]{saved_path.resolve()}[/cyan]")
     except Exception as exc:
@@ -314,7 +321,9 @@ def export_dashboard(
 def get_acwr() -> None:
     """Calculate Acute-to-Chronic Workload Ratio (Gabbett 2016 injury prevention model)."""
     try:
-        raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+        # Fetch past the fitness model's 126-day warm-up (see calculate_fitness_fatigue)
+        start_date = (date.today() - timedelta(days=60 + 150)).isoformat()
+        raw_list = default_client.search_all_activities(start_date=start_date)
         acts = [Activity.from_api_dict(a) for a in raw_list]
         timeline = calculate_fitness_fatigue(acts, days=60)
         rec = calculate_acwr(timeline)
@@ -367,7 +376,7 @@ def get_vdot(
                 "race_predictions": get_vdot_race_predictions(vdot_val),
             }
         else:
-            raw_list = default_client.search_activities(start_date="2023-01-01", limit=150)
+            raw_list = default_client.search_all_activities()
             acts = [Activity.from_api_dict(a) for a in raw_list]
             vdot_data = find_best_empirical_vdot(acts)
 

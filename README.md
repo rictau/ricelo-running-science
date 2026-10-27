@@ -80,8 +80,6 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 
 ### Detailed Tool Reference (The 8 MCP Tools)
 
-*(Clean standard tool names; legacy `ricelo_*` and `garmin_*` aliases are also supported)*
-
 | Tool Name | Parameters | What It Computes & Returns |
 | :--- | :--- | :--- |
 | **`analyze_run`** | `activity_id: int` | Converts speed to pace (`MM:SS /km`), formats elevation and cadence, and calculates **Aerobic Decoupling (Cardiac Drift %)** between the first half and second half of the run. Returns lap splits and an endurance stability diagnosis (`<5% stable` vs `>8% fatigue`). |

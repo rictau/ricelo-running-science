@@ -92,8 +92,12 @@ class GarminClient:
             content_type = resp.headers.get("content-type", "")
             if "application/json" in content_type:
                 data = resp.json()
-                access_token = data.get("access_token") or data.get("token") or resp.text.strip()
-                expires_in = data.get("expires_in", 86400) if isinstance(data, dict) else 86400
+                if isinstance(data, dict):
+                    access_token = data.get("access_token") or data.get("token") or resp.text.strip()
+                    expires_in = data.get("expires_in", 86400)
+                else:
+                    access_token = data if isinstance(data, str) else resp.text.strip()
+                    expires_in = 86400
             else:
                 access_token = resp.text.strip()
                 expires_in = 86400
@@ -101,13 +105,15 @@ class GarminClient:
             self._cached_token = access_token
             self._token_expires_at = now + float(expires_in)
 
-            # Persist to disk cache
+            # Persist to disk cache, readable only by the owner: the file
+            # holds a live bearer token for the account.
             try:
-                DEFAULT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-                DEFAULT_CACHE_FILE.write_text(
-                    json.dumps({"access_token": access_token, "expires_at": self._token_expires_at}),
-                    encoding="utf-8",
-                )
+                DEFAULT_CACHE_FILE.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                fd = os.open(DEFAULT_CACHE_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+                if hasattr(os, "fchmod"):  # not available on Windows before Python 3.13
+                    os.fchmod(fd, 0o600)  # also tighten a cache file left by older versions
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump({"access_token": access_token, "expires_at": self._token_expires_at}, f)
             except Exception:
                 pass
 
@@ -161,6 +167,35 @@ class GarminClient:
             params["activityType"] = activity_type
         result = self.get("/activitylist-service/activities/search/activities", params=params)
         return result or []
+
+    def search_all_activities(
+        self,
+        *,
+        start_date: str | date | None = None,
+        end_date: str | date | None = None,
+        activity_type: str | None = None,
+        page_size: int = 100,
+        max_activities: int = 10000,
+    ) -> list[dict[str, Any]]:
+        """Fetch every activity in the date range by paging through search results.
+
+        A single search call returns at most `limit` activities, newest first,
+        so a capped call silently drops the oldest part of a long range.
+        `max_activities` is a safety stop, not an expected limit.
+        """
+        activities: list[dict[str, Any]] = []
+        while len(activities) < max_activities:
+            page = self.search_activities(
+                start_date=start_date,
+                end_date=end_date,
+                activity_type=activity_type,
+                limit=page_size,
+                offset=len(activities),
+            )
+            activities.extend(page)
+            if len(page) < page_size:
+                break
+        return activities[:max_activities]
 
     def get_activity(self, activity_id: int | str) -> dict[str, Any]:
         """Fetch full activity details including splits and metadata."""

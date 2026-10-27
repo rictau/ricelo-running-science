@@ -6,7 +6,7 @@ import math
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -354,7 +354,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
             value_a=act_a.duration_str,
             value_b=act_b.duration_str,
             delta_str=format_seconds(abs(dur_diff)),
-            verdict="B was longer" if dur_diff > 0 else "A was longer",
+            verdict="Equal" if abs(dur_diff) < 1 else ("B was longer" if dur_diff > 0 else "A was longer"),
         )
     )
 
@@ -369,7 +369,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
                 value_a=act_a.pace_min_km,
                 value_b=act_b.pace_min_km,
                 delta_str=f"{pace_diff_sec:+.1f} s/km",
-                verdict="A was faster" if pace_diff_sec > 0 else "B was faster",
+                verdict="Equal" if pace_diff_sec == 0 else ("A was faster" if pace_diff_sec > 0 else "B was faster"),
             )
         )
 
@@ -382,7 +382,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
                 value_a=f"{act_a.avg_hr:.0f} bpm",
                 value_b=f"{act_b.avg_hr:.0f} bpm",
                 delta_str=f"{hr_diff:+.1f} bpm",
-                verdict="A had lower HR" if hr_diff > 0 else "B had lower HR",
+                verdict="Equal" if hr_diff == 0 else ("A had lower HR" if hr_diff > 0 else "B had lower HR"),
             )
         )
 
@@ -397,7 +397,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
                 value_a=f"{eff_a:.2f}",
                 value_b=f"{eff_b:.2f}",
                 delta_str=f"{eff_diff:+.2f}",
-                verdict="B was more aerobic-efficient" if eff_diff > 0 else "A was more aerobic-efficient",
+                verdict="Equal" if eff_diff == 0 else ("B was more aerobic-efficient" if eff_diff > 0 else "A was more aerobic-efficient"),
             )
         )
 
@@ -411,7 +411,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
             value_a=f"{elev_a:.0f} m",
             value_b=f"{elev_b:.0f} m",
             delta_str=f"{elev_diff:+.0f} m",
-            verdict="B had more elevation" if elev_diff > 0 else "A had more elevation",
+            verdict="Equal" if elev_diff == 0 else ("B had more elevation" if elev_diff > 0 else "A had more elevation"),
         )
     )
 
@@ -426,7 +426,7 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
                 value_a=f"{dec_a:.1f}%",
                 value_b=f"{dec_b:.1f}%",
                 delta_str=f"{dec_diff:+.1f}%",
-                verdict="A had better cardiac stability" if dec_diff > 0 else "B had better cardiac stability",
+                verdict="Equal" if dec_diff == 0 else ("A had better cardiac stability" if dec_diff > 0 else "B had better cardiac stability"),
             )
         )
 

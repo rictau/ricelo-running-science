@@ -20,12 +20,23 @@ def format_seconds(seconds: float | None) -> str:
     return f"{minutes:02d}:{secs:02d}"
 
 
+def _num(value: Any, default: float = 0.0) -> float:
+    """Coerce an API number to float; Garmin sends null for fields an activity lacks."""
+    return default if value is None else float(value)
+
+
 def speed_to_pace_str(speed_mps: float | None) -> str:
     """Convert speed (meters/sec) to running pace (min:sec /km)."""
     if speed_mps is None or speed_mps <= 0.1:
         return "--:--"
     pace_sec = 1000.0 / speed_mps
     return f"{format_seconds(pace_sec)} /km"
+
+
+def _first(summary: dict[str, Any], data: dict[str, Any], key: str) -> Any:
+    """Return key from the summary, falling back to the top-level dict when absent or null."""
+    value = summary.get(key)
+    return data.get(key) if value is None else value
 
 
 class Split(BaseModel):
@@ -150,9 +161,9 @@ class Activity(BaseModel):
             splits.append(
                 Split(
                     split_index=s.get("splitIndex") or s.get("lapIndex") or idx,
-                    distance_m=float(s.get("distance", 0.0)),
-                    duration_s=float(s.get("duration", 0.0)),
-                    avg_speed_mps=float(s.get("averageSpeed", 0.0)),
+                    distance_m=_num(s.get("distance")),
+                    duration_s=_num(s.get("duration")),
+                    avg_speed_mps=_num(s.get("averageSpeed")),
                     avg_hr=s.get("averageHR") or s.get("averageHeartRate"),
                     max_hr=s.get("maxHR") or s.get("maxHeartRate"),
                     avg_cadence=s.get("averageRunCadence") or s.get("averageBikeCadence") or s.get("averageCadence"),
@@ -176,11 +187,11 @@ class Activity(BaseModel):
             activity_type=str(act_type),
             activity_subtype=str(act_subtype) if act_subtype else None,
             start_time_local=summary.get("startTimeLocal") or summary.get("startTimeGMT") or data.get("startTimeLocal") or "",
-            distance_m=float(summary.get("distance", data.get("distance", 0.0))),
-            duration_s=float(summary.get("duration", data.get("duration", 0.0))),
-            elapsed_duration_s=float(summary.get("elapsedDuration", data.get("elapsedDuration", summary.get("duration", 0.0)))),
+            distance_m=_num(_first(summary, data, "distance")),
+            duration_s=_num(_first(summary, data, "duration")),
+            elapsed_duration_s=_num(_first(summary, data, "elapsedDuration") or _first(summary, data, "duration")),
             moving_duration_s=summary.get("movingDuration") or data.get("movingDuration"),
-            avg_speed_mps=float(summary.get("averageSpeed", data.get("averageSpeed", 0.0))),
+            avg_speed_mps=_num(_first(summary, data, "averageSpeed")),
             max_speed_mps=summary.get("maxSpeed") or data.get("maxSpeed"),
             avg_hr=summary.get("averageHR") or summary.get("averageHeartRate") or data.get("averageHR"),
             max_hr=summary.get("maxHR") or summary.get("maxHeartRate") or data.get("maxHR"),
