@@ -41,11 +41,31 @@ If the config file already has an `"mcpServers"` section, add only the `"ricelo"
 | :--- | :--- |
 | Claude Desktop | Settings → Developer → **Edit Config** opens `claude_desktop_config.json`. Save, then quit with Cmd+Q and reopen; **ricelo** should show as running under Settings → Developer. |
 | Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Antigravity | `~/.gemini/config/mcp_config.json` |
+| VS Code (Copilot) | Different format, see below |
 | Claude Code | `claude mcp add ricelo -- uvx ricelo-running-science@latest` |
 | Codex | `codex mcp add ricelo -- uvx ricelo-running-science@latest` |
 
+Other clients that take a standard `mcpServers` config (for example LM Studio or Cline) use the same entry.
+
+**VS Code** uses `"servers"` instead of `"mcpServers"` and needs `"type": "stdio"`. Run **MCP: Open User Configuration** from the Command Palette and add:
+
+```json
+{
+  "servers": {
+    "ricelo": {
+      "type": "stdio",
+      "command": "/path/to/uvx",
+      "args": ["ricelo-running-science@latest"]
+    }
+  }
+}
+```
+
 The server reads your key from the file saved in Quick Start. To pass it from the config instead, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }` to the entry.
+
+ChatGPT, claude.ai on the web and the mobile apps only connect to remote MCP servers by URL, so they can't run ricelo, which runs on your computer.
 
 **From a clone (for development):** use `"command": "/path/to/uv"` with `"args": ["run", "--directory", "/path/to/ricelo-running-science", "ricelo-running-science-mcp"]` to run your local code. Inside the repo, Claude Code loads it automatically via `.mcp.json` and Cursor via `.cursor/mcp.json`.
 
