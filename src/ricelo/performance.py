@@ -236,87 +236,60 @@ class BestEffort:
     raw_value: float
 
 
+# (category, race distance m, longest run counted m). A run counts toward a
+# race distance when it covers at least the distance (less 1% for GPS) and
+# is not much longer.
+RACE_DISTANCES = [
+    ("Fastest 5K", 5000.0, 5500.0),
+    ("Fastest 10K", 10000.0, 10500.0),
+    ("Fastest Half Marathon", 21097.5, 22500.0),
+    ("Marathon (42.2K)", 42195.0, 45000.0),
+]
+GPS_SHORT_TOLERANCE = 0.99
+
+
+def race_effort_display(a: Activity, race_m: float) -> str:
+    """Pace and time for a race distance, from a run of at least that distance.
+
+    For a run noticeably longer than the race distance, the time shown is
+    the race distance at the run's average pace, not the whole run's time.
+    """
+    if a.distance_m <= race_m * 1.01:
+        return f"{a.pace_min_km} ({a.duration_str})"
+    est = format_seconds(race_m / a.avg_speed_mps)
+    return f"{a.pace_min_km} ({est} at average pace; whole run {a.distance_km:.2f} km in {a.duration_str})"
+
+
 def find_best_efforts(activities: list[Activity]) -> list[BestEffort]:
     """Find athlete's best historical performances across distance and speed benchmarks."""
     best: dict[str, BestEffort] = {}
 
+    def consider(category: str, a: Activity, raw_value: float, display: str) -> None:
+        if category not in best or raw_value > best[category].raw_value:
+            best[category] = BestEffort(
+                category=category,
+                activity_id=a.activity_id,
+                activity_name=a.name,
+                date_str=a.start_time_local[:10],
+                value_display=display,
+                raw_value=raw_value,
+            )
+
     for a in activities:
         if not a.start_time_local or a.distance_km <= 0:
             continue
-        d_km = a.distance_km
-        dt_str = a.start_time_local[:10]
-        is_run = "run" in a.activity_type.lower()
+        if "run" not in a.activity_type.lower():
+            continue
 
-        # Marathon (40.0 - 45.0 km)
-        if is_run and 40.0 <= d_km <= 45.0 and a.avg_speed_mps > 0:
-            if "Marathon (42.2K)" not in best or a.avg_speed_mps > best["Marathon (42.2K)"].raw_value:
-                best["Marathon (42.2K)"] = BestEffort(
-                    category="Marathon (42.2K)",
-                    activity_id=a.activity_id,
-                    activity_name=a.name,
-                    date_str=dt_str,
-                    value_display=f"{a.pace_min_km} ({a.duration_str})",
-                    raw_value=a.avg_speed_mps,
-                )
+        consider("Longest Run", a, a.distance_km, f"{a.distance_km:.2f} km ({a.duration_str})")
 
-        # Longest Run
-        if is_run:
-            if "Longest Run" not in best or d_km > best["Longest Run"].raw_value:
-                best["Longest Run"] = BestEffort(
-                    category="Longest Run",
-                    activity_id=a.activity_id,
-                    activity_name=a.name,
-                    date_str=dt_str,
-                    value_display=f"{d_km:.2f} km ({a.duration_str})",
-                    raw_value=d_km,
-                )
+        if a.avg_speed_mps > 0:
+            for category, race_m, max_m in RACE_DISTANCES:
+                if race_m * GPS_SHORT_TOLERANCE <= a.distance_m <= max_m:
+                    consider(category, a, a.avg_speed_mps, race_effort_display(a, race_m))
 
-        # Fastest Half Marathon (20.5 - 22.5 km)
-        if is_run and 20.5 <= d_km <= 22.5 and a.avg_speed_mps > 0:
-            if "Fastest Half Marathon" not in best or a.avg_speed_mps > best["Fastest Half Marathon"].raw_value:
-                best["Fastest Half Marathon"] = BestEffort(
-                    category="Fastest Half Marathon",
-                    activity_id=a.activity_id,
-                    activity_name=a.name,
-                    date_str=dt_str,
-                    value_display=f"{a.pace_min_km} ({a.duration_str})",
-                    raw_value=a.avg_speed_mps,
-                )
-
-        # Fastest 10K (9.5 - 10.5 km)
-        if is_run and 9.5 <= d_km <= 10.5 and a.avg_speed_mps > 0:
-            if "Fastest 10K" not in best or a.avg_speed_mps > best["Fastest 10K"].raw_value:
-                best["Fastest 10K"] = BestEffort(
-                    category="Fastest 10K",
-                    activity_id=a.activity_id,
-                    activity_name=a.name,
-                    date_str=dt_str,
-                    value_display=f"{a.pace_min_km} ({a.duration_str})",
-                    raw_value=a.avg_speed_mps,
-                )
-
-        # Fastest 5K (4.8 - 5.5 km)
-        if is_run and 4.8 <= d_km <= 5.5 and a.avg_speed_mps > 0:
-            if "Fastest 5K" not in best or a.avg_speed_mps > best["Fastest 5K"].raw_value:
-                best["Fastest 5K"] = BestEffort(
-                    category="Fastest 5K",
-                    activity_id=a.activity_id,
-                    activity_name=a.name,
-                    date_str=dt_str,
-                    value_display=f"{a.pace_min_km} ({a.duration_str})",
-                    raw_value=a.avg_speed_mps,
-                )
-
-        # Elevation gain (Running vert)
-        if is_run and a.elevation_gain_m and ("Max Elevation Gain" not in best or a.elevation_gain_m > best["Max Elevation Gain"].raw_value):
-            best["Max Elevation Gain"] = BestEffort(
-                category="Max Elevation Gain",
-                activity_id=a.activity_id,
-                activity_name=a.name,
-                date_str=dt_str,
-                value_display=f"{a.elevation_gain_m:.0f} m",
-                raw_value=a.elevation_gain_m,
-            )
+        if a.elevation_gain_m:
+            consider("Max Elevation Gain", a, a.elevation_gain_m, f"{a.elevation_gain_m:.0f} m")
 
     return list(best.values())
 
@@ -346,13 +319,17 @@ def compare_activities(act_a: Activity, act_b: Activity) -> list[ComparisonMetri
         )
     )
 
-    # Duration
-    dur_diff = act_b.duration_s - act_a.duration_s
+    # Duration: moving time when Garmin reports it for both, else timer time
+    if act_a.moving_duration_s and act_b.moving_duration_s:
+        dur_name, dur_a, dur_b = "Moving Duration", act_a.moving_duration_s, act_b.moving_duration_s
+    else:
+        dur_name, dur_a, dur_b = "Duration", act_a.duration_s, act_b.duration_s
+    dur_diff = dur_b - dur_a
     metrics.append(
         ComparisonMetric(
-            metric_name="Moving Duration",
-            value_a=act_a.duration_str,
-            value_b=act_b.duration_str,
+            metric_name=dur_name,
+            value_a=format_seconds(dur_a),
+            value_b=format_seconds(dur_b),
             delta_str=format_seconds(abs(dur_diff)),
             verdict="Equal" if abs(dur_diff) < 1 else ("B was longer" if dur_diff > 0 else "A was longer"),
         )
@@ -586,33 +563,66 @@ def get_vdot_race_predictions(vdot: float) -> dict[str, str]:
                 low = mid
             else:
                 high = mid
-        tot_secs = mid * 60.0
-        h = int(tot_secs // 3600)
-        m = int((tot_secs % 3600) // 60)
-        s = int(round(tot_secs % 60))
-        if h > 0:
-            results[name] = f"{h:02d}:{m:02d}:{s:02d}"
-        else:
-            results[name] = f"{m:02d}:{s:02d}"
+        # format_seconds rounds the total first, so 50:59.6 shows as 51:00, not 50:60
+        results[name] = format_seconds(mid * 60.0)
 
     return results
 
 
-def find_best_empirical_vdot(activities: list[Activity]) -> Optional[dict[str, Any]]:
+def is_race(a: Activity) -> bool:
+    """True when the activity is tagged as a race (event type) in Garmin Connect."""
+    event = a.raw_data.get("eventType") or a.raw_data.get("eventTypeDTO") or {}
+    return isinstance(event, dict) and event.get("typeKey") == "race"
+
+
+def find_best_empirical_vdot(
+    activities: list[Activity],
+    max_age_days: int = 365,
+    today: date | None = None,
+) -> Optional[dict[str, Any]]:
     """
-    Scan historical activities to find the athlete's peak demonstrated VDOT
-    strictly from genuine race/benchmark efforts (5K, 10K, Half, Marathon).
+    Find the athlete's current VDOT from recent race/benchmark efforts
+    (5K, 10K, Half, Marathon).
+
+    Only efforts from the last max_age_days count, so an old peak does not
+    set today's paces. Runs tagged as races in Garmin Connect are preferred;
+    without any, the fastest race-distance run in the window is used. If the
+    window has no candidate, falls back to all history and says so in "note".
     Does NOT use sub-maximal jogs or arbitrary fudge factors.
     """
+    today = today or date.today()
+    cutoff = (today - timedelta(days=max_age_days)).isoformat()
+    recent = [a for a in activities if a.start_time_local and a.start_time_local[:10] >= cutoff]
+
+    result = _best_vdot_effort(recent)
+    if result is not None:
+        result["lookback_days"] = max_age_days
+        return result
+
+    result = _best_vdot_effort(activities)
+    if result is not None:
+        result["lookback_days"] = None
+        result["note"] = (
+            f"No race-distance effort in the last {max_age_days} days; using the best from all history "
+            f"({result['benchmark_date']}). Paces may not reflect current fitness."
+        )
+    return result
+
+
+def _best_vdot_effort(activities: list[Activity]) -> Optional[dict[str, Any]]:
+    candidates = [
+        a for a in activities
+        if a.start_time_local and a.distance_km > 0 and a.duration_s > 0 and "run" in a.activity_type.lower()
+    ]
+    races = [a for a in candidates if is_race(a)]
+    if races:
+        candidates = races
+
     best_vdot = 0.0
     best_act = None
     best_dist_type = ""
 
-    for a in activities:
-        if not a.start_time_local or a.distance_km <= 0 or a.duration_s <= 0:
-            continue
-        if "run" not in a.activity_type.lower():
-            continue
+    for a in candidates:
 
         d_m = a.distance_m
         t_s = a.duration_s
@@ -645,6 +655,7 @@ def find_best_empirical_vdot(activities: list[Activity]) -> Optional[dict[str, A
         "benchmark_distance": best_dist_type,
         "benchmark_time": best_act.duration_str,
         "benchmark_pace": best_act.pace_min_km,
+        "benchmark_is_race": is_race(best_act),
         "training_paces": get_vdot_training_paces(best_vdot),
         "race_predictions": get_vdot_race_predictions(best_vdot),
     }

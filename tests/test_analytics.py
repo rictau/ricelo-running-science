@@ -298,7 +298,7 @@ def test_compare_activities_reports_equal():
     b = Activity(activity_id=2, distance_m=5000, duration_s=1500, avg_speed_mps=3.33, avg_hr=150, elevation_gain_m=20)
     assert {m.metric_name: m.verdict for m in compare_activities(a, b)} == {
         "Distance": "Equal",
-        "Moving Duration": "Equal",
+        "Duration": "Equal",
         "Average Pace": "Equal",
         "Average Heart Rate": "Equal",
         "Efficiency Factor (Speed/HR)": "Equal",
@@ -365,3 +365,162 @@ def test_dashboard_has_no_placeholder_athlete_data(tmp_path):
     ).read_text(encoding="utf-8")
     assert "140 to 160 bpm" in page  # Zone 2: 70-80% of 200
     assert "Max HR: <strong>200 bpm</strong>" in page
+
+
+def test_movement_type_split_summaries_are_not_laps():
+    # Garmin's splitSummaries group a run by movement type; this morning's
+    # 5.4 km run came back as a 5.38 km "split" and a 24 m "split".
+    act = Activity.from_api_dict({
+        "activityId": 1,
+        "activityType": {"typeKey": "running", "parentTypeId": 17},
+        "startTimeLocal": "2026-10-27 08:30:58",
+        "distance": 5404.0,
+        "duration": 2136.0,
+        "averageSpeed": 2.53,
+        "aerobicTrainingEffect": 3.299999952316284,
+        "splitSummaries": [
+            {"splitType": "RWD_RUN", "distance": 5380.0, "duration": 2119.5, "averageSpeed": 2.54, "averageHR": 145},
+            {"splitType": "RWD_STAND", "distance": 24.0, "duration": 16.5, "averageSpeed": 1.45, "averageHR": 145},
+        ],
+    })
+    assert act.splits == []
+    assert act.aerobic_training_effect == 3.3
+    # parentTypeId is a numeric type ID, not a subtype name.
+    assert act.activity_subtype is None
+
+
+def test_race_predictions_never_show_sixty_seconds():
+    from ricelo.performance import get_vdot_race_predictions
+
+    for tenth in range(300, 801):
+        for name, time_str in get_vdot_race_predictions(tenth / 10).items():
+            assert not time_str.endswith(":60"), (tenth / 10, name, time_str)
+            assert ":60:" not in time_str, (tenth / 10, name, time_str)
+
+
+def _run(i, distance_m, duration_s, day="2026-10-15", **kw):
+    return Activity(
+        activity_id=i,
+        name=f"Run {i}",
+        activity_type="running",
+        start_time_local=f"{day} 08:00:00",
+        distance_m=distance_m,
+        duration_s=duration_s,
+        avg_speed_mps=distance_m / duration_s,
+        **kw,
+    )
+
+
+def test_half_marathon_record_uses_race_distance_not_whole_run():
+    # A 22 km run in 2:13:02 used to be reported as a 2:13:02 half marathon.
+    efforts = {e.category: e for e in find_best_efforts([_run(1, 22000, 7982)])}
+    half = efforts["Fastest Half Marathon"].value_display
+    assert half.startswith("06:03 /km (02:07:3")
+    assert "whole run 22.00 km in 02:13:02" in half
+
+    # A run that is the race distance shows its own time.
+    efforts = {e.category: e for e in find_best_efforts([_run(2, 5000, 1481)])}
+    assert efforts["Fastest 5K"].value_display == "04:56 /km (24:41)"
+
+
+def test_runs_shorter_than_race_distance_do_not_count():
+    # 20.5 km used to count as a half marathon and 40 km as a marathon.
+    efforts = {e.category for e in find_best_efforts([_run(1, 20600, 6000), _run(2, 40500, 13000)])}
+    assert "Fastest Half Marathon" not in efforts
+    assert "Marathon (42.2K)" not in efforts
+
+
+def test_vdot_ignores_efforts_older_than_lookback():
+    from datetime import date
+    from ricelo.performance import find_best_empirical_vdot
+
+    old_fast = _run(1, 5000, 1200, day="2019-10-01")  # 20:00 5K
+    recent = _run(2, 5000, 1481, day="2026-10-15")    # 24:41 5K
+    result = find_best_empirical_vdot([old_fast, recent], today=date(2026, 10, 27))
+    assert result["benchmark_activity_id"] == 2
+    assert result["lookback_days"] == 365
+    assert "note" not in result
+
+    # With nothing recent, fall back to history but say so.
+    result = find_best_empirical_vdot([old_fast], today=date(2026, 10, 27))
+    assert result["benchmark_activity_id"] == 1
+    assert "2019-10-01" in result["note"]
+
+
+def test_vdot_prefers_runs_tagged_as_races():
+    from datetime import date
+    from ricelo.performance import find_best_empirical_vdot
+
+    fast_training = _run(1, 5000, 1400)
+    race = _run(2, 10000, 3100, raw_data={"eventType": {"typeKey": "race"}})
+    result = find_best_empirical_vdot([fast_training, race], today=date(2026, 10, 27))
+    assert result["benchmark_activity_id"] == 2
+    assert result["benchmark_is_race"] is True
+
+
+def test_compare_uses_moving_duration_when_available():
+    a = _run(1, 5000, 1500, moving_duration_s=1480)
+    b = _run(2, 5000, 1500, moving_duration_s=1490)
+    metric = next(m for m in compare_activities(a, b) if "Duration" in m.metric_name)
+    assert metric.metric_name == "Moving Duration"
+    assert (metric.value_a, metric.value_b) == ("24:40", "24:50")
+
+
+def _records(minutes, hr_start, hr_end, speed=3.0, step_s=5):
+    import pandas as pd
+
+    n = int(minutes * 60 / step_s)
+    start = pd.Timestamp("2026-10-27 08:30:00")
+    return pd.DataFrame({
+        "timestamp": [start + pd.Timedelta(seconds=i * step_s) for i in range(n)],
+        "enhanced_speed": [speed] * n,
+        "heart_rate": [hr_start + (hr_end - hr_start) * i / max(n - 1, 1) for i in range(n)],
+    })
+
+
+def test_decoupling_from_records():
+    from ricelo.fit import decoupling_from_records
+
+    # Constant pace with HR rising 140 -> 160: efficiency drops in the second half.
+    drift = decoupling_from_records(_records(40, 140, 160))
+    assert drift is not None and 6.0 < drift < 8.0
+    assert decoupling_from_records(_records(40, 150, 150)) == 0.0
+    # Too short to judge.
+    assert decoupling_from_records(_records(15, 140, 160)) is None
+
+
+def test_decoupling_ignores_pauses():
+    import pandas as pd
+    from ricelo.fit import decoupling_from_records
+
+    df = _records(40, 150, 150)
+    # A 10-minute stop at a traffic light: the gap and the standing samples
+    # must not count as moving time or shift the halves.
+    paused = df.copy()
+    paused.loc[paused.index >= 240, "timestamp"] += pd.Timedelta(minutes=10)
+    standing = pd.DataFrame({"timestamp": [pd.Timestamp("2026-10-27 08:50:05")], "enhanced_speed": [0.0], "heart_rate": [100]})
+    assert decoupling_from_records(pd.concat([paused, standing])) == 0.0
+
+
+def test_laps_to_splits_and_fit_cadence():
+    import pandas as pd
+    from ricelo.fit import FitActivityData, apply_fit_data, laps_to_splits
+
+    laps = pd.DataFrame([
+        {"total_distance": 1000.0, "total_timer_time": 395.0, "enhanced_avg_speed": 2.53, "avg_heart_rate": 140,
+         "avg_running_cadence": 85, "avg_fractional_cadence": 0.5, "total_ascent": 10},
+        {"total_distance": 403.0, "total_timer_time": 160.0, "avg_heart_rate": 150},
+    ])
+    splits = laps_to_splits(laps)
+    assert [s.distance_m for s in splits] == [1000.0, 403.0]
+    assert splits[0].avg_cadence == 171.0
+    assert splits[1].avg_speed_mps == 403.0 / 160.0
+
+    records = _records(30, 150, 150).assign(cadence=[86] * 359 + [0], fractional_cadence=0.0)
+    fit = FitActivityData(records_df=records, laps_df=laps, session_info={"sport": "running"})
+    # Per-leg cadence 86 is 172 steps per minute; the stopped zero is ignored.
+    assert fit.get_summary()["avg_cadence"] == 172.0
+
+    act = apply_fit_data(_run(1, 1403, 555), fit)
+    assert len(act.splits) == 2
+    assert act.aerobic_decoupling_pct == 0.0

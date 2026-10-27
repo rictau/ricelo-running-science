@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .models import Activity, Split, format_seconds, speed_to_pace_str
+from .models import Activity, format_seconds, speed_to_pace_str
 from .performance import (
     BestEffort,
     ComparisonMetric,
@@ -78,7 +78,7 @@ def print_activity_detail(act: Activity) -> None:
         f"[bold cyan]{act.name}[/bold cyan] ({act.activity_type})\n"
         f"Date: [bold]{act.start_time_local}[/bold] | ID: {act.activity_id}\n\n"
         f"Distance: [bold yellow]{act.distance_km:.2f} km[/bold yellow] ({act.distance_miles:.2f} mi)\n"
-        f"Moving Duration: [bold]{act.duration_str}[/bold] (Elapsed: {act.duration_s:.0f}s)\n"
+        f"Duration: [bold]{act.duration_str}[/bold] | Moving: {format_seconds(act.moving_duration_s) if act.moving_duration_s else 'N/A'} | Elapsed: {format_seconds(act.elapsed_duration_s)}\n"
         f"Average Pace: [bold magenta]{act.pace_min_km}[/bold magenta] ({act.speed_kmh} km/h)\n"
         f"Heart Rate: [bold red]Avg {act.avg_hr or 'N/A'} bpm[/bold red] | Max {act.max_hr or 'N/A'} bpm\n"
         f"Elevation: [bold green]+{act.elevation_gain_m or 0:.0f} m climb, {act.elevation_loss_m or 0:.0f} m loss[/bold green]\n"
@@ -224,36 +224,12 @@ def generate_html_dashboard(
     downloads_dir = Path("downloads")
     if downloads_dir.exists():
         try:
-            from .fit import extract_and_parse_fit
+            from .fit import apply_fit_data, extract_and_parse_fit
             for act in activities:
                 zip_p = downloads_dir / f"activity_{act.activity_id}.zip"
                 if zip_p.exists() and (not act.splits or len(act.splits) < 5):
                     try:
-                        fit_data = extract_and_parse_fit(zip_p)
-                        if not fit_data.laps_df.empty:
-                            new_splits = []
-                            for idx, row in fit_data.laps_df.iterrows():
-                                dist = float(row.get("total_distance", 0.0) or 0.0)
-                                dur = float(row.get("total_elapsed_time", 0.0) or row.get("total_timer_time", 0.0) or 0.0)
-                                spd = float(row.get("avg_speed", 0.0) or (dist / max(dur, 1.0) if dur > 0 else 0.0))
-                                hr = float(row["avg_heart_rate"]) if "avg_heart_rate" in row and row["avg_heart_rate"] else None
-                                max_hr = float(row["max_heart_rate"]) if "max_heart_rate" in row and row["max_heart_rate"] else None
-                                cad = float(row["avg_running_cadence"]) * 2 if "avg_running_cadence" in row and row["avg_running_cadence"] else None
-                                elev = float(row["total_ascent"]) if "total_ascent" in row and row["total_ascent"] else None
-                                new_splits.append(
-                                    Split(
-                                        split_index=int(idx + 1),
-                                        distance_m=dist,
-                                        duration_s=dur,
-                                        avg_speed_mps=spd,
-                                        avg_hr=hr,
-                                        max_hr=max_hr,
-                                        avg_cadence=cad,
-                                        elevation_gain_m=elev,
-                                    )
-                                )
-                            if new_splits:
-                                act.splits = new_splits
+                        apply_fit_data(act, extract_and_parse_fit(zip_p))
                     except Exception:
                         pass
         except Exception:

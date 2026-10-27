@@ -16,7 +16,7 @@ Built to deliver high-resolution running mechanics, endurance training load curv
 ## Table of Contents
 
 - [What is Inside This MCP](#what-is-inside-this-mcp)
-  - [Detailed Tool Reference (8 Tools)](#detailed-tool-reference-the-8-mcp-tools)
+  - [Detailed Tool Reference (9 Tools)](#detailed-tool-reference-the-9-mcp-tools)
 - [Quick Start](#quick-start-authenticating-your-key)
 - [Client Installation Guide](#client-installation-guide)
   - [A. Codex CLI / Codex App](#a-codex-cli--codex-app)
@@ -57,6 +57,7 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 │  6. get_readiness_assessment       → Sleep + HRV + Body Battery + RHR  │
 │  7. get_acwr_injury_risk           → 7d acute vs 28d chronic sweet spot│
 │  8. get_vdot_paces                 → Daniels VDOT & prescribed paces   │
+│  9. list_activities                → Recent activities & Garmin IDs    │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │ Invokes
                                     ▼
@@ -78,18 +79,19 @@ Unlike generic wrappers that dump unparsed Garmin JSON into an AI model's contex
 
 ---
 
-### Detailed Tool Reference (The 8 MCP Tools)
+### Detailed Tool Reference (The 9 MCP Tools)
 
 | Tool Name | Parameters | What It Computes & Returns |
 | :--- | :--- | :--- |
-| **`analyze_run`** | `activity_id: int` | Converts speed to pace (`MM:SS /km`), formats elevation and cadence, and calculates **Aerobic Decoupling (Cardiac Drift %)** between the first half and second half of the run. Returns lap splits and an endurance stability diagnosis (`<5% stable` vs `>8% fatigue`). |
+| **`analyze_run`** | `activity_id: int` | Converts speed to pace (`MM:SS /km`), formats elevation and cadence, and calculates **Aerobic Decoupling (Cardiac Drift %)** between the first half and second half of the moving time, from the FIT file's sample stream (runs of 20+ minutes). Returns the watch's laps from the FIT file and an endurance stability diagnosis (`<5% stable` vs `>8% fatigue`). |
 | **`compare_runs`** | `activity_id_a: int`, `activity_id_b: int` | Automates side-by-side run comparisons: computes exact **Pace Deltas** (s/km), **Heart Rate Deltas** (bpm), **Efficiency Factor Deltas** (Speed/HR ratio), and elevation differentials with verbal verdicts. |
 | **`get_training_volume`** | `weeks: int = 12`, `frequency: str = "W"` | Periodizes training history: aggregates distance (km), duration (hours), elevation climb (m), and calories burned by week or month, broken down across running sessions. |
 | **`get_fitness_and_freshness`** | `days: int = 60` | Models long-term training stress balance using standard endurance mathematics: **CTL (Chronic Training Load / Fitness: 42-day rolling base)**, **ATL (Acute Training Load / Fatigue: 7-day stress)**, and **TSB (Form / Freshness)**. |
-| **`get_personal_records`** | *None* | Scans your entire historical running career back to 2023 to discover authentic milestone records: Marathon (42.2K), Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, and Max Elevation Gain. |
-| **`get_readiness_assessment`** | *None* | Synthesizes your biometrics: Sleep score, total sleep, deep and REM durations, overnight HRV average vs weekly baseline, Body Battery highest / charged, and resting HR into an actionable daily training recommendation. |
+| **`get_personal_records`** | *None* | Scans your entire running history for milestone records: Marathon (42.2K), Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, and Max Elevation Gain. A run counts toward a race distance only if it covers that distance; for a longer run, the time shown is the race distance at the run's average pace. |
+| **`get_readiness_assessment`** | *None* | Synthesizes your biometrics: Sleep score, total sleep, deep and REM durations, overnight HRV average vs weekly baseline, Body Battery highest / charged, and resting HR into an actionable daily training recommendation. Gives no verdict when last night's sleep and HRV are both missing. |
 | **`get_acwr_injury_risk`** | *None* | Computes **Acute-to-Chronic Workload Ratio (Gabbett 2016)** comparing 7-day acute fatigue against 28-day baseline conditioning to diagnose injury risk (`Sweet Spot 0.80 - 1.30` vs `Danger Zone > 1.50`). |
-| **`get_vdot_paces`** | `distance_m: float?`, `duration_s: float?` | Calculates **Jack Daniels VDOT**, equivalent race finish predictions (5K, 10K, Half, Full), and exact training target paces (Easy, Marathon, Threshold, Interval, Repetition) based on your peak empirical benchmark. |
+| **`get_vdot_paces`** | `distance_m: float?`, `duration_s: float?` | Calculates **Jack Daniels VDOT**, equivalent race finish predictions (5K, 10K, Half, Full), and exact training target paces (Easy, Marathon, Threshold, Interval, Repetition) based on your best race-distance effort of the last 365 days (runs tagged as races in Garmin Connect take priority). |
+| **`list_activities`** | `limit: int = 20`, `activity_type: str?` | Lists recent activities, newest first, with the Garmin activity IDs that `analyze_run` and `compare_runs` take. |
 
 ---
 

@@ -8,9 +8,10 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -38,6 +39,7 @@ class GarminClient:
         self._key_file = Path(key_file).expanduser() if key_file else DEFAULT_KEY_FILE
         self._cached_token: str | None = None
         self._token_expires_at: float = 0.0
+        self._timezone: ZoneInfo | None = None
         self._http = httpx.Client(timeout=30.0)
 
     def get_api_key(self) -> str:
@@ -199,7 +201,17 @@ class GarminClient:
 
     def get_activity(self, activity_id: int | str) -> dict[str, Any]:
         """Fetch full activity details including splits and metadata."""
-        result = self.get(f"/activity-service/activity/{activity_id}")
+        try:
+            result = self.get(f"/activity-service/activity/{activity_id}")
+        except httpx.HTTPStatusError as exc:
+            # Garmin answers 403 for an ID that belongs to another account or
+            # does not exist, e.g. a Strava activity ID.
+            if exc.response.status_code in (403, 404):
+                raise ValueError(
+                    f"Activity {activity_id} not found or not accessible with this account "
+                    f"(HTTP {exc.response.status_code}). Is this a Garmin Connect activity ID?"
+                ) from exc
+            raise
         if not result:
             raise ValueError(f"Activity {activity_id} not found.")
         return result
@@ -209,8 +221,8 @@ class GarminClient:
         result = self.get(f"/activity-service/activity/{activity_id}/workouts")
         return result or []
 
-    def download_activity(self, activity_id: int | str, output_dir: Path | str = "./downloads") -> Path:
-        """Download original activity zip/.fit file."""
+    def download_activity_bytes(self, activity_id: int | str) -> bytes:
+        """Download the original activity file (a zip holding the .fit) into memory."""
         resp = self._request(
             "GET",
             f"/download-service/files/activity/{activity_id}",
@@ -218,10 +230,14 @@ class GarminClient:
             # Accept header and 200 to */* (verified 2026-10-26).
             headers={"Accept": "*/*"},
         )
+        return resp.content
+
+    def download_activity(self, activity_id: int | str, output_dir: Path | str = "./downloads") -> Path:
+        """Download original activity zip/.fit file."""
         out_path = Path(output_dir).expanduser()
         out_path.mkdir(parents=True, exist_ok=True)
         zip_file = out_path / f"activity_{activity_id}.zip"
-        zip_file.write_bytes(resp.content)
+        zip_file.write_bytes(self.download_activity_bytes(activity_id))
         return zip_file
 
     def get_daily_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
@@ -245,13 +261,15 @@ class GarminClient:
 
     def get_sleep_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
         """Fetch nightly sleep records across a date range."""
-        s = start_date if isinstance(start_date, str) else start_date.isoformat()
-        e = end_date if isinstance(end_date, str) else end_date.isoformat()
-        result = self.get(
-            "/sleep-service/sleep/dailySleepSummariesByDate",
-            params={"startDate": s, "endDate": e},
-        )
-        return result or []
+
+        def fetch(s: str, e: str) -> list[dict[str, Any]]:
+            result = self.get(
+                "/sleep-service/sleep/dailySleepSummariesByDate",
+                params={"startDate": s, "endDate": e},
+            )
+            return result or []
+
+        return _fetch_in_windows(fetch, start_date, end_date)
 
     def get_hrv_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
         """Fetch overnight HRV records across a date range."""
@@ -262,13 +280,15 @@ class GarminClient:
 
     def get_body_battery(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
         """Fetch daily Body Battery data across a date range."""
-        s = start_date if isinstance(start_date, str) else start_date.isoformat()
-        e = end_date if isinstance(end_date, str) else end_date.isoformat()
-        result = self.get(
-            "/wellness-service/wellness/bodyBattery/reports/daily",
-            params={"startDate": s, "endDate": e},
-        )
-        return result or []
+
+        def fetch(s: str, e: str) -> list[dict[str, Any]]:
+            result = self.get(
+                "/wellness-service/wellness/bodyBattery/reports/daily",
+                params={"startDate": s, "endDate": e},
+            )
+            return result or []
+
+        return _fetch_in_windows(fetch, start_date, end_date)
 
     def get_heart_rate_zones(self) -> list[dict[str, Any]]:
         """Fetch heart rate zones."""
@@ -285,6 +305,42 @@ class GarminClient:
         """Fetch profile settings."""
         result = self.get("/userprofile-service/userprofile/settings")
         return result or {}
+
+    def today(self) -> date:
+        """Today's date in the athlete's Garmin profile timezone.
+
+        Activity start times are in the athlete's local time, so "today"
+        must be too: on a UTC host, date.today() is still yesterday for an
+        athlete in Tokyo until 09:00 local time. Falls back to the host's
+        date if the profile has no usable timezone.
+        """
+        if self._timezone is None:
+            try:
+                self._timezone = ZoneInfo(self.get_profile()["timeZone"])
+            except Exception:
+                return date.today()
+        return datetime.now(self._timezone).date()
+
+
+# The Personal API rejects longer ranges with HTTP 400: sleep accepts up to
+# 32 days and Body Battery up to 29 (verified 2026-10-27).
+WELLNESS_WINDOW_DAYS = 28
+
+
+def _fetch_in_windows(
+    fetch: Callable[[str, str], list[dict[str, Any]]],
+    start_date: str | date,
+    end_date: str | date,
+) -> list[dict[str, Any]]:
+    """Call fetch(start, end) over consecutive windows small enough for the API."""
+    start = date.fromisoformat(start_date) if isinstance(start_date, str) else start_date
+    end = date.fromisoformat(end_date) if isinstance(end_date, str) else end_date
+    records: list[dict[str, Any]] = []
+    while start <= end:
+        window_end = min(end, start + timedelta(days=WELLNESS_WINDOW_DAYS - 1))
+        records.extend(fetch(start.isoformat(), window_end.isoformat()))
+        start = window_end + timedelta(days=1)
+    return records
 
 
 # Singleton instance
