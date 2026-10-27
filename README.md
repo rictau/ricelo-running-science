@@ -58,7 +58,7 @@ To run it without cloning, use `"command": "uvx"` with `"args": ["--from", "git+
 | `get_personal_records` | Fastest 5K/10K/half/marathon (measured from FIT files), longest run, most elevation |
 | `get_readiness_assessment` | Readiness from last night's sleep, HRV and Body Battery |
 
-Readiness needs the watch to be worn overnight; without sleep or HRV data it gives no verdict. Resting HR and stress are not available through the Personal API.
+Readiness needs the watch to be worn overnight; without sleep or HRV data it gives no verdict. Resting HR and stress show N/A, because the daily summary they come from isn't available through the Personal API.
 
 ## Command Line
 

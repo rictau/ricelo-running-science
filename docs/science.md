@@ -33,22 +33,27 @@ Decoupling (Pa:Hr) = (EF1 − EF2) ÷ EF1 × 100%
 ---
 
 ### 3. VO₂ Max: Sub-Integer Telemetry (`fit.py`)
-Garmin Connect truncates VO₂ max to whole integers (e.g. `44`), hiding micro-adaptations and taper rebounds. The engine decodes raw Firstbeat metabolic data directly from binary `.FIT` files (**Message 140, Field 7**):
+Garmin Connect rounds VO₂ max to a whole number (e.g. 44.38 shows as `44`), hiding small changes. The engine decodes raw Firstbeat metabolic data directly from binary `.FIT` files (**Message 140, Field 7**):
 
 ```
 VO2 max = raw value × 3.5 ÷ 65536
 ```
 
-This yields true two-decimal precision (43.76 → 44.03 → 44.35) to capture subtle fitness trends weeks before they reflect on consumer dashboards.
+This gives two decimals (for example 43.9 → 44.2 → 44.4), so you can see a trend before the whole number changes.
 
 ---
 
 ### 4. Fitness & Fatigue: CTL / ATL / TSB (`performance.py`)
 Rooted in the **Impulse-Response Model** (Dr. Eric Banister, 1975) and the **Performance Management Chart** (Dr. Andrew Coggan & Hunter Allen, 2006).
 
-1. **Daily Load:** scales with Garmin's aerobic and anaerobic Training Effect (TE) and the duration in minutes. Falls back to an HR-reserve TRIMP if Training Effect is absent.
+1. **Daily Load:** each activity's load comes from Garmin's aerobic and anaerobic Training Effect (TE) and its duration in minutes, summed per day. This is ricelo's own scale, not Garmin's Training Load or TSS.
    ```
    load = 8.0 × aerobic_TE^2.2 + 12.0 × anaerobic_TE^1.8 + 0.4 × minutes
+   ```
+   Without Training Effect, it falls back to a heart-rate estimate that assumes a resting HR of 50 and a max HR of 190, and without heart rate, to duration alone:
+   ```
+   load = 1.5 × minutes × (average HR − 50) ÷ 140
+   load = 0.8 × minutes
    ```
 
 2. **Exponentially weighted moving averages**, one value per day:
@@ -81,7 +86,9 @@ The chronic window includes the acute week (the "coupled" ACWR).
 | **under 0.80** | **Underload** | Workload decaying; risk spikes if subsequent load jumps rapidly. |
 | **0.80–1.30** | **The Sweet Spot** | **Lowest relative injury risk.** Safe load progression matched to tissue adaptation. |
 | **1.30–1.50** | **Caution Zone** | Workload accelerating faster than connective tissue adapts. Prioritize sleep/recovery. |
-| **over 1.50** | **The Danger Zone** | **2x to 4x relative soft-tissue injury risk.** Workload reduction or cross-training required. |
+| **over 1.50** | **The Danger Zone** | **Markedly higher injury risk in published studies.** Reduce workload or cross-train. |
+
+ACWR is a rough guide, not a diagnosis. Later research (for example Impellizzeri et al., 2020) questions how well it predicts injury for an individual athlete.
 
 ---
 
@@ -103,7 +110,7 @@ Developed by **Dr. Jack Daniels & Jimmy Gilbert (1979)** in *Oxygen Power*. **VD
    VDOT = VO2(d ÷ t) ÷ θ(t)
    ```
 
-4. **Target paces:** derived by solving the oxygen-cost equation for the velocity v at each prescribed intensity:
+4. **Target paces:** derived by solving the oxygen-cost equation for the velocity v at each intensity. Daniels gives ranges (Easy 59–74%, Marathon 75–84%, Threshold 83–88%, Interval 95–100%, Repetition 105–120%); ricelo uses one point within each:
 
 | Training Zone | % of VDOT | Target Stimulus & Protocol |
 | :--- | :--- | :--- |
