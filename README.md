@@ -2,9 +2,9 @@
 
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-3776AB.svg?logo=python&logoColor=white)](https://www.python.org/downloads/)
 [![Model Context Protocol](https://img.shields.io/badge/MCP-Standard-purple.svg)](https://modelcontextprotocol.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/rictau/ricelo-running-science/blob/master/LICENSE)
 
-Running analytics for your Garmin data, as an MCP server for AI assistants and as a command-line tool. It reads your activities through Garmin Connect's **Personal API** and computes laps and cardiac drift, training load (CTL / ATL / TSB), injury risk (ACWR), VDOT training paces, personal records and daily readiness. The formulas are documented in [docs/science.md](docs/science.md).
+Running analytics for your Garmin data, as an MCP server for AI assistants and as a command-line tool. It reads your activities through Garmin Connect's **Personal API** and computes laps and cardiac drift, training load (CTL / ATL / TSB), injury risk (ACWR), VDOT training paces, personal records and daily readiness. The formulas are documented in [docs/science.md](https://github.com/rictau/ricelo-running-science/blob/master/docs/science.md).
 
 ## Quick Start
 
@@ -106,4 +106,4 @@ uv run pytest         # run the tests
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](https://github.com/rictau/ricelo-running-science/blob/master/LICENSE).

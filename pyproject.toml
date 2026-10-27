@@ -4,6 +4,18 @@ version = "0.4.0"
 description = "ricelo running science - Precision running telemetry, sub-integer VO2 max, and physiological load intelligence for AI and humans"
 readme = "README.md"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "rictau" }]
+keywords = ["garmin", "running", "mcp", "vdot", "training-load", "fit"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+]
 dependencies = [
     "fitparse>=1.2.0",
     "httpx>=0.28.1",
@@ -17,8 +29,14 @@ dependencies = [
 [dependency-groups]
 dev = ["pytest>=9.0"]
 
+[project.urls]
+Homepage = "https://github.com/rictau/ricelo-running-science"
+Documentation = "https://github.com/rictau/ricelo-running-science/blob/master/docs/science.md"
+Issues = "https://github.com/rictau/ricelo-running-science/issues"
+
 [project.scripts]
 ricelo = "ricelo.cli:app"
+ricelo-running-science = "ricelo.mcp_server:main"
 ricelo-cli = "ricelo.cli:app"
 ricelo-running-science-mcp = "ricelo.mcp_server:main"
 garmin-cli = "ricelo.cli:app"
