@@ -439,7 +439,8 @@ def test_vdot_ignores_efforts_older_than_lookback():
     result = find_best_empirical_vdot([old_fast, recent], today=date(2026, 10, 27))
     assert result["benchmark_activity_id"] == 2
     assert result["lookback_days"] == 365
-    assert "note" not in result
+    assert "all history" not in result["note"]
+    assert "not a run tagged as a race" in result["note"]
 
     # With nothing recent, fall back to history but say so.
     result = find_best_empirical_vdot([old_fast], today=date(2026, 10, 27))
@@ -456,6 +457,7 @@ def test_vdot_prefers_runs_tagged_as_races():
     result = find_best_empirical_vdot([fast_training, race], today=date(2026, 10, 27))
     assert result["benchmark_activity_id"] == 2
     assert result["benchmark_is_race"] is True
+    assert "note" not in result
 
 
 def test_compare_uses_moving_duration_when_available():
@@ -524,3 +526,80 @@ def test_laps_to_splits_and_fit_cadence():
     act = apply_fit_data(_run(1, 1403, 555), fit)
     assert len(act.splits) == 2
     assert act.aerobic_decoupling_pct == 0.0
+
+
+def _distance_records(splits, step_s=5):
+    """Records at step_s intervals; splits is [(seconds, speed_mps), ...]."""
+    import pandas as pd
+
+    rows, t, d = [], 0, 0.0
+    start = pd.Timestamp("2026-10-27 08:00:00")
+    for seconds, speed in splits:
+        for _ in range(int(seconds / step_s)):
+            rows.append({"timestamp": start + pd.Timedelta(seconds=t), "distance": d})
+            t += step_s
+            d += speed * step_s
+    rows.append({"timestamp": start + pd.Timedelta(seconds=t), "distance": d})
+    return pd.DataFrame(rows)
+
+
+def test_best_segment_finds_fastest_stretch():
+    from ricelo.fit import best_segment_seconds
+
+    # 10 min easy at 2.5 m/s, then 5 km at 4 m/s (1250 s), then easy again.
+    df = _distance_records([(600, 2.5), (1250, 4.0), (600, 2.5)])
+    assert abs(best_segment_seconds(df, 5000) - 1250) < 1
+    assert best_segment_seconds(df, 50000) is None
+
+
+def test_best_segment_excludes_pauses():
+    import pandas as pd
+    from ricelo.fit import best_segment_seconds
+
+    # 5 km at 4 m/s with a 2-minute auto-pause in the middle: no records,
+    # no distance gained, so the timer time stays 1250 s.
+    df = _distance_records([(1250, 4.0)])
+    df.loc[df.index > 125, "timestamp"] += pd.Timedelta(minutes=2)
+    assert abs(best_segment_seconds(df, 5000) - 1250) < 1
+
+
+def test_measured_best_efforts_uses_fit_segments():
+    from ricelo import fit
+
+    long_run = _run(1, 22000, 7982)      # 22 km at 6:03 /km overall
+    gps_short_5k = _run(2, 4980, 1481)   # the watch read 4.98 km in a 5K
+
+    class FakeClient:
+        downloads = []
+
+        def download_activity_bytes(self, activity_id):
+            self.downloads.append(activity_id)
+            return b"fit"
+
+    # The 22 km run: 2 km easy, then a 21.1 km stretch in 1:55:00, then easy.
+    records = _distance_records([(800, 2.5), (6900, 21097.5 / 6900), (300, 2.5)])
+    original = fit.parse_fit_download
+    fit.parse_fit_download = lambda data: fit.FitActivityData(records_df=records, laps_df=records.iloc[0:0], session_info={})
+    try:
+        client = FakeClient()
+        efforts = {e.category: e for e in fit.measured_best_efforts(client, [long_run, gps_short_5k])}
+    finally:
+        fit.parse_fit_download = original
+
+    half = efforts["Fastest Half Marathon"]
+    assert half.value_display.startswith("05:27 /km (01:55:00; fastest stretch of a 22.00 km run")
+    # A GPS-short 5K counts in its own time, without a download.
+    assert efforts["Fastest 5K"].value_display == "04:56 /km (24:41)"
+    assert client.downloads == [1]
+
+
+def test_best_segment_rejects_gps_jumps():
+    from ricelo.fit import best_segment_seconds
+
+    # Speed sensor says 2.5 m/s throughout, but GPS distance runs at 4 m/s:
+    # the "fast" stretch is GPS error, not running.
+    df = _distance_records([(1500, 4.0)]).assign(enhanced_speed=2.5)
+    assert best_segment_seconds(df, 5000) is None
+    # When the two agree, the segment counts.
+    df = _distance_records([(1500, 4.0)]).assign(enhanced_speed=4.0)
+    assert abs(best_segment_seconds(df, 5000) - 1250) < 1

@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import html
 import json
-import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -14,7 +13,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from .models import Activity, format_seconds, speed_to_pace_str
+from .models import Activity, format_seconds
 from .performance import (
     BestEffort,
     ComparisonMetric,
@@ -210,6 +209,7 @@ def generate_html_dashboard(
     max_hr: float | None = None,
     weeks_scope: int = 12,
     default_theme: str = "light",
+    today: date | None = None,
 ) -> Path:
     """
     Generate an interactive, modern, high performance HTML performance dashboard.
@@ -217,6 +217,7 @@ def generate_html_dashboard(
     theme switcher without emojis, no unnecessary decorative icons, and clean language
     without hyphens.
     """
+    today = today or date.today()
     out_file = Path(output_path).expanduser()
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -263,8 +264,8 @@ def generate_html_dashboard(
 
     # 4. Compute Time Scopes and Date Ranges
     dates_act = [a.start_time_local[:10] for a in activities if a.start_time_local]
-    act_start_date = min(dates_act) if dates_act else (date.today() - timedelta(weeks=weeks_scope)).isoformat()
-    act_end_date = max(dates_act) if dates_act else date.today().isoformat()
+    act_start_date = min(dates_act) if dates_act else (today - timedelta(weeks=weeks_scope)).isoformat()
+    act_end_date = max(dates_act) if dates_act else today.isoformat()
     act_date_range = f"{act_start_date} to {act_end_date}"
     days_scope = weeks_scope * 7
 
@@ -284,7 +285,7 @@ def generate_html_dashboard(
 
     # 5. Athlete KPIs
     latest_fitness = fitness_records[-1] if fitness_records else DailyFitnessRecord(
-        date_str=date.today().isoformat(), daily_load=0, ctl_fitness=0.0, atl_fatigue=0.0, tsb_form=0.0, status="No data"
+        date_str=today.isoformat(), daily_load=0, ctl_fitness=0.0, atl_fatigue=0.0, tsb_form=0.0, status="No data"
     )
     
     if vo2_history:
@@ -316,7 +317,7 @@ def generate_html_dashboard(
     title_suffix = f" ({athlete_disp})" if athlete_disp else ""
     athlete_pill = f'<div class="pill">Athlete: <strong>{athlete_disp}</strong></div>' if athlete_disp else ""
 
-    cutoff_30d = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+    cutoff_30d = (today - timedelta(days=30)).isoformat()
     acts_30d = [a for a in activities if a.start_time_local and a.start_time_local[:10] >= cutoff_30d]
     dist_30d = sum(a.distance_km for a in acts_30d)
     time_30d_h = sum(a.duration_s for a in acts_30d) / 3600.0

@@ -8,9 +8,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
-import pandas as pd
-
-from .models import Activity, format_seconds, speed_to_pace_str
+from .models import Activity, format_seconds
 
 
 @dataclass
@@ -594,18 +592,26 @@ def find_best_empirical_vdot(
     cutoff = (today - timedelta(days=max_age_days)).isoformat()
     recent = [a for a in activities if a.start_time_local and a.start_time_local[:10] >= cutoff]
 
+    notes: list[str] = []
     result = _best_vdot_effort(recent)
     if result is not None:
         result["lookback_days"] = max_age_days
-        return result
-
-    result = _best_vdot_effort(activities)
-    if result is not None:
+    else:
+        result = _best_vdot_effort(activities)
+        if result is None:
+            return None
         result["lookback_days"] = None
-        result["note"] = (
+        notes.append(
             f"No race-distance effort in the last {max_age_days} days; using the best from all history "
             f"({result['benchmark_date']}). Paces may not reflect current fitness."
         )
+    if not result["benchmark_is_race"]:
+        notes.append(
+            "The benchmark is the fastest race-distance run, not a run tagged as a race in Garmin Connect. "
+            "If it was not an all-out effort, VDOT is underestimated; tag races in Garmin Connect to use them instead."
+        )
+    if notes:
+        result["note"] = " ".join(notes)
     return result
 
 

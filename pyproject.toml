@@ -1,6 +1,6 @@
 [project]
 name = "ricelo-running-science"
-version = "0.3.0"
+version = "0.4.0"
 description = "ricelo running science - Precision running telemetry, sub-integer VO2 max, and physiological load intelligence for AI and humans"
 readme = "README.md"
 requires-python = ">=3.12"

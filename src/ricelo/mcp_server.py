@@ -8,7 +8,7 @@ from typing import Any, Optional
 from mcp.server.fastmcp import FastMCP
 
 from .client import default_client
-from .fit import fetch_activity_with_laps
+from .fit import fetch_activity_with_laps, measured_best_efforts
 from .models import Activity, format_seconds
 from .performance import (
     aggregate_volume,
@@ -16,13 +16,11 @@ from .performance import (
     calculate_fitness_fatigue,
     calculate_vdot,
     compare_activities,
-    find_best_efforts,
     find_best_empirical_vdot,
     get_vdot_race_predictions,
     get_vdot_training_paces,
 )
 from .recovery import evaluate_daily_readiness, latest_body_battery_record
-from .reporting import generate_html_dashboard
 
 mcp = FastMCP("ricelo-running-science")
 
@@ -202,10 +200,12 @@ def get_personal_records() -> list[dict[str, Any]]:
     """
     Find athlete's career running personal records and landmark efforts across historical activities
     (Marathon 42.2K, Fastest Half Marathon, Fastest 10K, Fastest 5K, Longest Run, Max Elevation Gain).
+    Race-distance times are the fastest continuous stretch measured from FIT files,
+    checking the 3 runs with the fastest average pace for each distance.
     """
     raw_list = default_client.search_all_activities()
     activities = [Activity.from_api_dict(a) for a in raw_list]
-    bests = find_best_efforts(activities)
+    bests = measured_best_efforts(default_client, activities)
 
     return [
         {
