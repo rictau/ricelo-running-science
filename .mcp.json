@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "ricelo": {
+      "command": "uv",
+      "args": ["run", "ricelo-running-science-mcp"],
+      "env": {
+        "GARMIN_PERSONAL_API_KEY": "${GARMIN_PERSONAL_API_KEY}"
+      }
+    }
+  }
+}
