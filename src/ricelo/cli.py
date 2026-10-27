@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -11,7 +11,7 @@ import typer
 from rich.console import Console
 
 from .client import GarminAuthError, default_client
-from .fit import extract_and_parse_fit
+from .fit import extract_and_parse_fit, fetch_activity_with_laps
 from .models import Activity
 from .performance import (
     aggregate_volume,
@@ -65,7 +65,7 @@ def list_activities(
     activity_type: Optional[str] = typer.Option(None, "--type", "-t", help="Activity type (e.g. running, cycling)"),
 ) -> None:
     """List recent Garmin activities with pace, distance, and training effect."""
-    start_date = (date.today() - timedelta(days=days)).isoformat() if days else None
+    start_date = (default_client.today() - timedelta(days=days)).isoformat() if days else None
     try:
         raw_list = default_client.search_activities(limit=limit, start_date=start_date, activity_type=activity_type)
         activities = [Activity.from_api_dict(a) for a in raw_list]
@@ -84,8 +84,7 @@ def get_activity_detail(
 ) -> None:
     """View full performance details, splits, and cardiac drift for an activity."""
     try:
-        raw = default_client.get_activity(activity_id)
-        act = Activity.from_api_dict(raw)
+        act = fetch_activity_with_laps(default_client, activity_id)
         print_activity_detail(act)
     except Exception as exc:
         console.print(f"[bold red]Error fetching activity {activity_id}:[/bold red] {exc}")
@@ -98,7 +97,7 @@ def volume_summary(
     freq: str = typer.Option("W", "--freq", "-f", help="'W' for weekly, 'M' for monthly"),
 ) -> None:
     """Analyze weekly or monthly training volume, distance, time, and elevation."""
-    start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
+    start_date = (default_client.today() - timedelta(weeks=weeks)).isoformat()
     try:
         raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
@@ -115,11 +114,12 @@ def fitness_trends(
 ) -> None:
     """Calculate Fitness (CTL), Fatigue (ATL), and Form (TSB) training load curves."""
     # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
-    start_date = (date.today() - timedelta(days=days + 150)).isoformat()
+    today = default_client.today()
+    start_date = (today - timedelta(days=days + 150)).isoformat()
     try:
         raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
-        timeline = calculate_fitness_fatigue(activities, days=days)
+        timeline = calculate_fitness_fatigue(activities, days=days, end_date=today)
         print_fitness_timeline(timeline)
     except Exception as exc:
         console.print(f"[bold red]Error modeling fitness/fatigue:[/bold red] {exc}")
@@ -133,10 +133,8 @@ def compare(
 ) -> None:
     """Compare two activities side-by-side (pace, HR efficiency, splits, decoupling)."""
     try:
-        raw_a = default_client.get_activity(activity_a_id)
-        raw_b = default_client.get_activity(activity_b_id)
-        act_a = Activity.from_api_dict(raw_a)
-        act_b = Activity.from_api_dict(raw_b)
+        act_a = fetch_activity_with_laps(default_client, activity_a_id)
+        act_b = fetch_activity_with_laps(default_client, activity_b_id)
         metrics = compare_activities(act_a, act_b)
         print_comparison(act_a, act_b, metrics)
     except Exception as exc:
@@ -150,7 +148,7 @@ def best_efforts(
 ) -> None:
     """Find historical personal bests (fastest 5k, 10k, longest distance, max elevation)."""
     try:
-        raw_list = default_client.search_activities(limit=limit)
+        raw_list = default_client.search_all_activities(max_activities=limit)
         activities = [Activity.from_api_dict(a) for a in raw_list]
         bests = find_best_efforts(activities)
         if not bests:
@@ -174,8 +172,9 @@ def best_efforts(
 @app.command("readiness")
 def recovery_readiness() -> None:
     """Evaluate today's recovery and training readiness (Sleep + HRV + Body Battery)."""
-    today_str = date.today().isoformat()
-    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
+    today = default_client.today()
+    today_str = today.isoformat()
+    yesterday_str = (today - timedelta(days=1)).isoformat()
     try:
         sleep_records = default_client.get_sleep_summaries(yesterday_str, today_str)
         sleep_data = sleep_records[-1] if sleep_records else None
@@ -194,6 +193,7 @@ def recovery_readiness() -> None:
             hrv_data=hrv_data,
             body_battery_data=bb_data,
             daily_summary=daily_data,
+            today=today,
         )
         print_readiness(status)
     except Exception as exc:
@@ -277,7 +277,8 @@ def export_dashboard(
     max_hr: Optional[float] = typer.Option(None, "--max-hr", help="Max HR for zones (default: highest recorded)"),
 ) -> None:
     """Generate an interactive HTML performance dashboard with volume and fitness charts."""
-    start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
+    today = default_client.today()
+    start_date = (today - timedelta(weeks=weeks)).isoformat()
     try:
         raw_list = default_client.search_all_activities(start_date=start_date)
         activities = [Activity.from_api_dict(a) for a in raw_list]
@@ -290,8 +291,8 @@ def export_dashboard(
         except Exception:
             all_history_acts = activities
         best_efforts = find_best_efforts(all_history_acts)
-        fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7)
-        vdot_info = find_best_empirical_vdot(all_history_acts)
+        fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7, end_date=today)
+        vdot_info = find_best_empirical_vdot(all_history_acts, today=today)
         if max_hr is None:
             max_hr = max((a.max_hr for a in all_history_acts if a.max_hr), default=None)
 
@@ -322,10 +323,11 @@ def get_acwr() -> None:
     """Calculate Acute-to-Chronic Workload Ratio (Gabbett 2016 injury prevention model)."""
     try:
         # Fetch past the fitness model's 126-day warm-up (see calculate_fitness_fatigue)
-        start_date = (date.today() - timedelta(days=60 + 150)).isoformat()
+        today = default_client.today()
+        start_date = (today - timedelta(days=60 + 150)).isoformat()
         raw_list = default_client.search_all_activities(start_date=start_date)
         acts = [Activity.from_api_dict(a) for a in raw_list]
-        timeline = calculate_fitness_fatigue(acts, days=60)
+        timeline = calculate_fitness_fatigue(acts, days=60, end_date=today)
         rec = calculate_acwr(timeline)
 
         from rich.table import Table
@@ -378,7 +380,7 @@ def get_vdot(
         else:
             raw_list = default_client.search_all_activities()
             acts = [Activity.from_api_dict(a) for a in raw_list]
-            vdot_data = find_best_empirical_vdot(acts)
+            vdot_data = find_best_empirical_vdot(acts, today=default_client.today())
 
         if not vdot_data:
             console.print("[bold yellow]No empirical benchmark race efforts found.[/bold yellow]")
@@ -389,6 +391,8 @@ def get_vdot(
         v = vdot_data["vdot"]
         console.print(f"\n[bold green]Jack Daniels VDOT Engine: [bold cyan]{v:.2f}[/bold cyan][/bold green]")
         console.print(f"Benchmark Source: [bold]{vdot_data['benchmark_activity_name']}[/bold] ({vdot_data['benchmark_distance']} in {vdot_data['benchmark_time']}) • {vdot_data['benchmark_date']}\n")
+        if vdot_data.get("note"):
+            console.print(f"[yellow]{vdot_data['note']}[/yellow]\n")
 
         # Table 1: Daniels Training Paces
         t_paces = Table(title="Jack Daniels Prescribed Training Paces", show_header=True)

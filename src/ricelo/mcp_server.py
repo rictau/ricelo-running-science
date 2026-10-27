@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import timedelta
 from typing import Any, Optional
 
 from mcp.server.fastmcp import FastMCP
 
 from .client import default_client
-from .models import Activity
+from .fit import fetch_activity_with_laps
+from .models import Activity, format_seconds
 from .performance import (
     aggregate_volume,
     calculate_acwr,
@@ -27,14 +28,37 @@ mcp = FastMCP("ricelo-running-science")
 
 
 @mcp.tool()
+def list_activities(limit: int = 20, activity_type: Optional[str] = None) -> list[dict[str, Any]]:
+    """
+    List recent activities, newest first, with their Garmin activity IDs
+    (needed by analyze_run and compare_runs). activity_type filters by
+    Garmin type key, e.g. "running", "trail_running", "cycling".
+    """
+    raw_list = default_client.search_all_activities(activity_type=activity_type, max_activities=limit)
+    return [
+        {
+            "activity_id": a.activity_id,
+            "name": a.name,
+            "type": a.activity_type,
+            "date": a.start_time_local,
+            "distance_km": a.distance_km,
+            "duration": a.duration_str,
+            "pace_min_km": a.pace_min_km,
+            "avg_hr": a.avg_hr,
+        }
+        for a in (Activity.from_api_dict(r) for r in raw_list)
+    ]
+
+
+@mcp.tool()
 def analyze_run(activity_id: int) -> dict[str, Any]:
     """
     Perform deep running performance analysis on a specific activity.
     Returns distance, moving time, pace (MM:SS /km), HR, elevation, Training Effect,
-    full lap/split breakdown, and Aerobic Decoupling (Cardiac Drift %).
+    the watch's lap breakdown, and Aerobic Decoupling (Cardiac Drift %).
+    Use list_activities to find activity IDs.
     """
-    raw = default_client.get_activity(activity_id)
-    act = Activity.from_api_dict(raw)
+    act = fetch_activity_with_laps(default_client, activity_id)
 
     splits_data = [
         {
@@ -56,7 +80,8 @@ def analyze_run(activity_id: int) -> dict[str, Any]:
         "date": act.start_time_local,
         "distance_km": act.distance_km,
         "distance_miles": act.distance_miles,
-        "moving_duration": act.duration_str,
+        "moving_duration": format_seconds(act.moving_duration_s) if act.moving_duration_s else None,
+        "total_duration": act.duration_str,
         "pace_min_km": act.pace_min_km,
         "speed_kmh": act.speed_kmh,
         "avg_hr": act.avg_hr,
@@ -71,7 +96,7 @@ def analyze_run(activity_id: int) -> dict[str, Any]:
             "Aerobically stable (<5% drift)"
             if act.aerobic_decoupling_pct is not None and act.aerobic_decoupling_pct < 5.0
             else ("Moderate cardiac drift (5-8%)" if act.aerobic_decoupling_pct is not None and act.aerobic_decoupling_pct <= 8.0
-                  else ("High cardiac drift (>8%) - aerobic fatigue or dehydration" if act.aerobic_decoupling_pct is not None else "Not enough splits to evaluate"))
+                  else ("High cardiac drift (>8%) - aerobic fatigue or dehydration" if act.aerobic_decoupling_pct is not None else "Not enough data (needs 20+ minutes of moving heart-rate data)"))
         ),
         "splits": splits_data,
     }
@@ -83,10 +108,8 @@ def compare_runs(activity_id_a: int, activity_id_b: int) -> dict[str, Any]:
     Compare two running sessions head-to-head (e.g. recent 10k run vs previous 10k run).
     Compares pace deltas (s/km), heart rate, efficiency factor (Speed/HR), elevation, and decoupling.
     """
-    raw_a = default_client.get_activity(activity_id_a)
-    raw_b = default_client.get_activity(activity_id_b)
-    act_a = Activity.from_api_dict(raw_a)
-    act_b = Activity.from_api_dict(raw_b)
+    act_a = fetch_activity_with_laps(default_client, activity_id_a)
+    act_b = fetch_activity_with_laps(default_client, activity_id_b)
 
     metrics = compare_activities(act_a, act_b)
 
@@ -113,7 +136,7 @@ def get_training_volume(weeks: int = 12, frequency: str = "W") -> list[dict[str,
     Returns total distance (km), duration (hours), elevation gain (m), calories,
     and sport distribution.
     """
-    start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
+    start_date = (default_client.today() - timedelta(weeks=weeks)).isoformat()
     raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
     periods = aggregate_volume(activities, freq=frequency)
@@ -144,10 +167,11 @@ def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     Returns recent daily timeline and current athlete physiological training status.
     """
     # Fetch past the model's 126-day warm-up (see calculate_fitness_fatigue)
-    start_date = (date.today() - timedelta(days=days + 150)).isoformat()
+    today = default_client.today()
+    start_date = (today - timedelta(days=days + 150)).isoformat()
     raw_list = default_client.search_all_activities(start_date=start_date)
     activities = [Activity.from_api_dict(a) for a in raw_list]
-    timeline = calculate_fitness_fatigue(activities, days=days)
+    timeline = calculate_fitness_fatigue(activities, days=days, end_date=today)
 
     current = timeline[-1] if timeline else None
 
@@ -201,8 +225,9 @@ def get_readiness_assessment() -> dict[str, Any]:
     Synthesize Garmin recovery biometrics (last night's sleep score, sleep stages,
     overnight HRV average & status, Body Battery, and resting HR) into an actionable daily readiness report.
     """
-    today_str = date.today().isoformat()
-    yesterday_str = (date.today() - timedelta(days=1)).isoformat()
+    today = default_client.today()
+    today_str = today.isoformat()
+    yesterday_str = (today - timedelta(days=1)).isoformat()
 
     sleep_records = default_client.get_sleep_summaries(yesterday_str, today_str)
     sleep_data = sleep_records[-1] if sleep_records else None
@@ -221,6 +246,7 @@ def get_readiness_assessment() -> dict[str, Any]:
         hrv_data=hrv_data,
         body_battery_data=bb_data,
         daily_summary=daily_data,
+        today=today,
     )
 
     return {
@@ -257,10 +283,11 @@ def get_acwr_injury_risk() -> dict[str, Any]:
     Returns acute load (last 7 days), chronic load (28-day baseline), ratio, zone verdict, and recommendation.
     """
     # Fetch past the fitness model's 126-day warm-up (see calculate_fitness_fatigue)
-    start_date = (date.today() - timedelta(days=60 + 150)).isoformat()
+    today = default_client.today()
+    start_date = (today - timedelta(days=60 + 150)).isoformat()
     raw_list = default_client.search_all_activities(start_date=start_date)
     acts = [Activity.from_api_dict(a) for a in raw_list]
-    timeline = calculate_fitness_fatigue(acts, days=60)
+    timeline = calculate_fitness_fatigue(acts, days=60, end_date=today)
     rec = calculate_acwr(timeline)
 
     return {
@@ -280,7 +307,8 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
     """
     Calculate Jack Daniels VDOT, equivalent race predictions, and prescribed training paces
     (Easy E-Pace, Marathon M-Pace, Threshold T-Pace, Interval I-Pace, Repetition R-Pace).
-    Uses authentic historical race benchmark if distance and duration are omitted.
+    If distance and duration are omitted, uses the best race-distance effort of the
+    last 365 days, preferring runs tagged as races in Garmin Connect.
     Does NOT use uncalibrated sub-maximal jogs or fudge factors.
     """
     if distance_m and duration_s:
@@ -295,7 +323,7 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
 
     raw_list = default_client.search_all_activities()
     acts = [Activity.from_api_dict(a) for a in raw_list]
-    vdot_data = find_best_empirical_vdot(acts)
+    vdot_data = find_best_empirical_vdot(acts, today=default_client.today())
 
     if not vdot_data:
         return {
@@ -304,7 +332,7 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
             "recommendation": "Provide distance_m and duration_s to calculate VDOT from a specific time-trial.",
         }
 
-    return {
+    result = {
         "vdot": vdot_data["vdot"],
         "benchmark_activity_name": vdot_data["benchmark_activity_name"],
         "benchmark_activity_id": vdot_data["benchmark_activity_id"],
@@ -312,9 +340,14 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
         "benchmark_distance": vdot_data["benchmark_distance"],
         "benchmark_time": vdot_data["benchmark_time"],
         "benchmark_pace": vdot_data["benchmark_pace"],
+        "benchmark_is_race": vdot_data["benchmark_is_race"],
+        "lookback_days": vdot_data["lookback_days"],
         "training_paces": vdot_data["training_paces"],
         "race_predictions": vdot_data["race_predictions"],
     }
+    if "note" in vdot_data:
+        result["note"] = vdot_data["note"]
+    return result
 
 
 def main():
