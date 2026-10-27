@@ -54,9 +54,14 @@ def evaluate_daily_readiness(
     hrv_data: dict[str, Any] | None = None,
     body_battery_data: dict[str, Any] | None = None,
     daily_summary: dict[str, Any] | None = None,
+    today: date | None = None,
 ) -> DailyRecoveryStatus:
     """
     Synthesize sleep, HRV, body battery, and stress into a holistic recovery status.
+
+    A verdict needs last night's sleep score or HRV status. Body Battery
+    alone is shown but does not produce a verdict: it is a derived figure
+    that reflects the whole day, not overnight recovery.
     """
     sleep_score: int | None = None
     sleep_dur_h: float | None = None
@@ -128,35 +133,48 @@ def evaluate_daily_readiness(
 
     # Determine readiness score & verdict
     score_components = []
+    low_signals: list[str] = []
     if sleep_score is not None:
         score_components.append(sleep_score)
+        if sleep_score < 60:
+            low_signals.append(f"sleep score {sleep_score}")
     if hrv_status:
         # Check "unbalanced" before "balanced": the substring test for
         # "balanced" also matches "UNBALANCED".
         st = hrv_status.lower()
         if "unbalanced" in st:
             score_components.append(50)
+            low_signals.append(f"HRV {hrv_status}")
         elif "balanced" in st:
             score_components.append(85)
         elif "low" in st or "poor" in st:
             score_components.append(30)
+            low_signals.append(f"HRV {hrv_status}")
+    has_overnight_data = bool(score_components)
+
     # Score Body Battery on its peak value, not on the day's charge total.
     # The Personal API reports a completed day's charge as 0 even when the
     # battery peaked normally, which would read as total exhaustion.
-    if bb_max is not None:
-        score_components.append(min(100, bb_max))
-    elif bb_charged is not None:
-        score_components.append(min(100, bb_charged))
-
-    composite_score = sum(score_components) / len(score_components) if score_components else 70.0
+    bb_score = bb_max if bb_max is not None else bb_charged
+    if bb_score is not None:
+        score_components.append(min(100, bb_score))
+        if bb_score < 50:
+            low_signals.append(f"Body Battery peak {bb_score}")
 
     today_str = (
         (sleep_data and sleep_data.get("calendarDate"))
         or (daily_summary and daily_summary.get("calendarDate"))
-        or date.today().isoformat()
+        or (today or date.today()).isoformat()
     )
 
-    if composite_score >= 80:
+    composite_score = sum(score_components) / len(score_components) if score_components else None
+
+    if not has_overnight_data:
+        verdict = "Insufficient Data / No Verdict"
+        rec = "No sleep or HRV data for last night, so readiness cannot be assessed."
+        if bb_score is not None:
+            rec += f" Body Battery peaked at {bb_score}."
+    elif composite_score >= 80:
         verdict = "High Readiness / Prime for Peak Performance"
         rec = "Body is well-recovered. Excellent day for high-intensity intervals, tempo runs, or heavy threshold training."
     elif composite_score >= 60:
@@ -164,7 +182,8 @@ def evaluate_daily_readiness(
         rec = "Recovery is adequate. Ideal for aerobic base miles (Zone 2), steady aerobic maintenance, or moderate effort."
     else:
         verdict = "Low Readiness / Recovery Priority"
-        rec = "Elevated physiological strain detected (low HRV or sub-optimal sleep). Prioritize rest, active recovery walk, gentle yoga, or early bedtime."
+        reasons = ", ".join(low_signals) or "low combined recovery score"
+        rec = f"Elevated physiological strain detected ({reasons}). Prioritize rest, active recovery walk, gentle yoga, or early bedtime."
 
     return DailyRecoveryStatus(
         date_str=today_str,

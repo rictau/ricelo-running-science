@@ -33,6 +33,10 @@ def speed_to_pace_str(speed_mps: float | None) -> str:
     return f"{format_seconds(pace_sec)} /km"
 
 
+def _round1(value: Any) -> float | None:
+    return None if value is None else round(float(value), 1)
+
+
 def _first(summary: dict[str, Any], data: dict[str, Any], key: str) -> Any:
     """Return key from the summary, falling back to the top-level dict when absent or null."""
     value = summary.get(key)
@@ -93,6 +97,9 @@ class Activity(BaseModel):
     anaerobic_training_effect: float | None = None
     calories: float | None = None
     splits: list[Split] = Field(default_factory=list)
+    # Drift computed from the FIT record stream (see fit.decoupling_from_records);
+    # preferred over the lap-based estimate when present.
+    record_decoupling_pct: float | None = None
     raw_data: dict[str, Any] = Field(default_factory=dict, repr=False)
 
     @property
@@ -122,6 +129,8 @@ class Activity(BaseModel):
         Measures efficiency (Speed / HR) difference between 1st half and 2nd half.
         A positive value > 5% indicates cardiac drift / fatigue.
         """
+        if self.record_decoupling_pct is not None:
+            return self.record_decoupling_pct
         if not self.splits or len(self.splits) < 2:
             return None
 
@@ -154,9 +163,13 @@ class Activity(BaseModel):
         """Parse raw Garmin API activity dictionary into an Activity model."""
         summary = data.get("summaryDTO") or data
 
-        # Extract splits / laps
+        # Extract splits / laps. Entries with a splitType (RWD_RUN, RWD_STAND,
+        # ...) are Garmin's totals per movement type, not laps: a continuous
+        # run yields one "split" for the whole distance. The activity details
+        # endpoint carries no real laps; those come from the FIT file
+        # (fit.fetch_activity_with_laps).
         splits: list[Split] = []
-        raw_splits = data.get("splitSummaries") or data.get("lapDTOs") or []
+        raw_splits = data.get("lapDTOs") or [s for s in data.get("splitSummaries") or [] if not s.get("splitType")]
         for idx, s in enumerate(raw_splits, start=1):
             splits.append(
                 Split(
@@ -176,7 +189,7 @@ class Activity(BaseModel):
         act_type_obj = data.get("activityTypeDTO") or summary.get("activityTypeDTO") or data.get("activityType") or summary.get("activityType") or {}
         if isinstance(act_type_obj, dict):
             act_type = act_type_obj.get("typeKey") or "other"
-            act_subtype = act_type_obj.get("parentTypeId") or summary.get("activitySubType")
+            act_subtype = summary.get("activitySubType")
         else:
             act_type = str(act_type_obj)
             act_subtype = summary.get("activitySubType")
@@ -201,8 +214,8 @@ class Activity(BaseModel):
             max_power_w=summary.get("maxPower") or data.get("maxPower"),
             elevation_gain_m=summary.get("elevationGain") or data.get("elevationGain"),
             elevation_loss_m=summary.get("elevationLoss") or data.get("elevationLoss"),
-            aerobic_training_effect=summary.get("aerobicTrainingEffect") or summary.get("trainingEffect") or data.get("aerobicTrainingEffect"),
-            anaerobic_training_effect=summary.get("anaerobicTrainingEffect") or data.get("anaerobicTrainingEffect"),
+            aerobic_training_effect=_round1(summary.get("aerobicTrainingEffect") or summary.get("trainingEffect") or data.get("aerobicTrainingEffect")),
+            anaerobic_training_effect=_round1(summary.get("anaerobicTrainingEffect") or data.get("anaerobicTrainingEffect")),
             calories=summary.get("calories") or data.get("calories"),
             splits=splits,
             raw_data=data,

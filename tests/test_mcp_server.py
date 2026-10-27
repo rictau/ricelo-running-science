@@ -13,6 +13,7 @@ EXPECTED_TOOLS = {
     "get_readiness_assessment",
     "get_training_volume",
     "get_vdot_paces",
+    "list_activities",
 }
 
 
