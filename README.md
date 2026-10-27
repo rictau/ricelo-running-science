@@ -20,9 +20,14 @@ Running analytics for your Garmin data, as an MCP server for AI assistants and a
    uvx --from ricelo-running-science ricelo auth
    ```
 
+On **Windows**, save the key in PowerShell instead (the input is visible):
+```powershell
+New-Item -ItemType Directory -Force "$HOME\.config\garmin" | Out-Null; Read-Host "Garmin Personal API key" | Set-Content -NoNewline -Encoding ascii "$HOME\.config\garmin\connect-personal-api-key"
+```
+
 ## Add to Your AI Client
 
-Add this server entry to your client's config. Replace `/path/to/uvx` with the output of `which uvx`: desktop apps don't see your terminal's `PATH`, so a bare `uvx` can fail with "command not found".
+Add this entry to your client's MCP config, with `/path/to/uvx` replaced by the output of `which uvx` (desktop apps don't see your terminal's `PATH`). If the file already has `"mcpServers"`, add just the `"ricelo"` entry inside it.
 
 ```json
 {
@@ -35,19 +40,19 @@ Add this server entry to your client's config. Replace `/path/to/uvx` with the o
 }
 ```
 
-If the config file already has an `"mcpServers"` section, add only the `"ricelo": { … }` entry inside it, separated from the others by a comma.
-
 | Client | Where it goes |
 | :--- | :--- |
-| Claude Desktop | Settings → Developer → **Edit Config** opens `claude_desktop_config.json`. Save, then quit with Cmd+Q and reopen; **ricelo** should show as running under Settings → Developer. |
+| Claude Desktop | Settings → Developer → **Edit Config**, then quit (Cmd+Q) and reopen |
 | Cursor | `~/.cursor/mcp.json` |
+| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Antigravity | `~/.gemini/config/mcp_config.json` |
+| VS Code | **MCP: Open User Configuration**; use `"servers"` instead of `"mcpServers"` and add `"type": "stdio"` to the entry |
 | Claude Code | `claude mcp add ricelo -- uvx ricelo-running-science@latest` |
 | Codex | `codex mcp add ricelo -- uvx ricelo-running-science@latest` |
 
-The server reads your key from the file saved in Quick Start. To pass it from the config instead, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }` to the entry.
+On Windows, get the path with `where.exe uvx` and write it with forward slashes, e.g. `"C:/Users/you/.local/bin/uvx.exe"`; `~` in the paths above is your user folder, and Claude Desktop is quit from its system-tray icon.
 
-**From a clone (for development):** use `"command": "/path/to/uv"` with `"args": ["run", "--directory", "/path/to/ricelo-running-science", "ricelo-running-science-mcp"]` to run your local code. Inside the repo, Claude Code loads it automatically via `.mcp.json` and Cursor via `.cursor/mcp.json`.
+To pass the key in the config instead of the key file, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }`. ChatGPT, claude.ai on the web and mobile apps only support remote MCP servers, so they can't run ricelo.
 
 ## MCP Tools
 
@@ -104,6 +109,8 @@ git clone https://github.com/rictau/ricelo-running-science.git && cd ricelo-runn
 uv run ricelo auth    # run the CLI from your local code
 uv run pytest         # run the tests
 ```
+
+To use your local code as the MCP server, set `"command": "/path/to/uv"` and `"args": ["run", "--directory", "/path/to/ricelo-running-science", "ricelo-running-science-mcp"]`. Inside the repo, Claude Code and Cursor load it automatically via `.mcp.json` and `.cursor/mcp.json`.
 
 To release: bump `version` in `pyproject.toml`, merge, then publish a GitHub release tagged `v<version>` (e.g. `v0.4.1`). The publish workflow tests, builds and uploads it to PyPI.
 

@@ -7,8 +7,28 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
       - run: uv run pytest -q
+
+      # Install the built package the way users do and start the MCP server
+      # over stdio, as an AI client would. No Garmin calls, so no API key.
+      - name: Smoke test the MCP server
+        shell: bash
+        run: |
+          uv build
+          uv run python scripts/smoke_mcp.py uvx --from "$(ls dist/*.whl)" ricelo-running-science
+
+      # The README's Windows key-saving command must produce a file the client reads.
+      - name: Check the Windows key file command
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force "$HOME\.config\garmin" | Out-Null; "ci-dummy-key" | Set-Content -NoNewline -Encoding ascii "$HOME\.config\garmin\connect-personal-api-key"
+          uv run python -c "from ricelo.client import GarminClient; key = GarminClient().get_api_key(); assert key == 'ci-dummy-key', repr(key); print('key file read OK')"
