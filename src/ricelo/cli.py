@@ -274,6 +274,7 @@ def download_activity(
 def export_dashboard(
     weeks: int = typer.Option(12, "--weeks", "-w", help="Number of weeks to visualize"),
     output: str = typer.Option("./garmin_dashboard.html", "--output", "-o", help="Output HTML path"),
+    max_hr: Optional[float] = typer.Option(None, "--max-hr", help="Max HR for zones (default: highest recorded)"),
 ) -> None:
     """Generate an interactive HTML performance dashboard with volume and fitness charts."""
     start_date = (date.today() - timedelta(weeks=weeks)).isoformat()
@@ -286,13 +287,18 @@ def export_dashboard(
         try:
             all_history_raw = default_client.search_all_activities()
             all_history_acts = [Activity.from_api_dict(a) for a in all_history_raw]
-            best_efforts = find_best_efforts(all_history_acts)
-            fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7)
-            vdot_info = find_best_empirical_vdot(all_history_acts)
         except Exception:
-            best_efforts = find_best_efforts(activities)
-            fitness = calculate_fitness_fatigue(activities, days=weeks * 7)
-            vdot_info = find_best_empirical_vdot(activities)
+            all_history_acts = activities
+        best_efforts = find_best_efforts(all_history_acts)
+        fitness = calculate_fitness_fatigue(all_history_acts, days=weeks * 7)
+        vdot_info = find_best_empirical_vdot(all_history_acts)
+        if max_hr is None:
+            max_hr = max((a.max_hr for a in all_history_acts if a.max_hr), default=None)
+
+        try:
+            athlete_name = default_client.get_profile().get("displayName")
+        except Exception:
+            athlete_name = None
 
         saved_path = generate_html_dashboard(
             activities,
@@ -302,6 +308,8 @@ def export_dashboard(
             best_efforts=best_efforts,
             vdot_info=vdot_info,
             weeks_scope=weeks,
+            athlete_name=athlete_name,
+            max_hr=max_hr,
         )
         console.print(f"[bold green]✓ Dashboard generated at:[/bold green] [cyan]{saved_path.resolve()}[/cyan]")
     except Exception as exc:

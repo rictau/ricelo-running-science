@@ -206,7 +206,8 @@ def generate_html_dashboard(
     best_efforts: list[BestEffort] | None = None,
     vdot_info: dict[str, Any] | None = None,
     vo2max_csv_path: Path | str | None = "./vo2max_2year_history.csv",
-    athlete_name: str = "rictau",
+    athlete_name: str | None = None,
+    max_hr: float | None = None,
     weeks_scope: int = 12,
     default_theme: str = "light",
 ) -> Path:
@@ -258,7 +259,7 @@ def generate_html_dashboard(
         except Exception:
             pass
 
-    # 2. Parse 2 Year VO2 Max History
+    # 2. Parse VO2 Max History
     vo2_history: list[dict[str, Any]] = []
     vo2_csv = Path(vo2max_csv_path) if vo2max_csv_path else Path("vo2max_2year_history.csv")
     if vo2_csv.exists():
@@ -291,36 +292,53 @@ def generate_html_dashboard(
     act_date_range = f"{act_start_date} to {act_end_date}"
     days_scope = weeks_scope * 7
 
+    # Without a VO2 history file, show N/A rather than invented numbers.
+    vo2_count = len(vo2_history)
+    vo2_years_str = "N/A"
+    vo2_date_range = "No VO2 max history file"
     if vo2_history:
         vo2_start = vo2_history[0]["date"]
         vo2_end = vo2_history[-1]["date"]
+        vo2_date_range = f"{vo2_start} to {vo2_end}"
         try:
-            d_start = datetime.strptime(vo2_start, "%Y-%m-%d")
-            d_end = datetime.strptime(vo2_end, "%Y-%m-%d")
-            vo2_days = (d_end - d_start).days
-            vo2_years = round(vo2_days / 365.25, 1)
-            vo2_years_str = f"{vo2_years} Years ({vo2_days} Days)"
-            vo2_date_range = f"{vo2_start} to {vo2_end}"
-        except Exception:
-            vo2_days = 723
-            vo2_years = 2.0
-            vo2_years_str = "2.0 Years (723 Days)"
-            vo2_date_range = f"{vo2_start} to {vo2_end}"
-    else:
-        vo2_days = 723
-        vo2_years = 2.0
-        vo2_years_str = "2.0 Years (723 Days)"
-        vo2_date_range = "2024-11-01 to 2026-10-25"
+            vo2_days = (datetime.strptime(vo2_end, "%Y-%m-%d") - datetime.strptime(vo2_start, "%Y-%m-%d")).days
+            vo2_years_str = f"{round(vo2_days / 365.25, 1)} Years ({vo2_days} Days)"
+        except ValueError:
+            pass
 
     # 5. Athlete KPIs
     latest_fitness = fitness_records[-1] if fitness_records else DailyFitnessRecord(
-        date_str=date.today().isoformat(), daily_load=0, ctl_fitness=20.0, atl_fatigue=15.0, tsb_form=5.0, status="Optimal"
+        date_str=date.today().isoformat(), daily_load=0, ctl_fitness=0.0, atl_fatigue=0.0, tsb_form=0.0, status="No data"
     )
     
-    current_vo2 = vo2_history[-1]["vo2_max"] if vo2_history else 44.35
-    vo2_high = max((r["vo2_max"] for r in vo2_history), default=45.03)
-    vo2_low = min((r["vo2_max"] for r in vo2_history), default=42.26)
-    vo2_delta = round(vo2_history[-1]["vo2_max"] - vo2_history[-2]["vo2_max"], 2) if len(vo2_history) >= 2 else 0.16
+    if vo2_history:
+        current_vo2 = vo2_history[-1]["vo2_max"]
+        vo2_current_disp = f"{current_vo2:.2f}"
+        vo2_watch_disp = str(round(current_vo2))
+        vo2_range_disp = (
+            f"High: {max(r['vo2_max'] for r in vo2_history):.2f} / "
+            f"Low: {min(r['vo2_max'] for r in vo2_history):.2f} / Latest: {vo2_current_disp}"
+        )
+    else:
+        vo2_current_disp = vo2_watch_disp = vo2_range_disp = "N/A"
+    vo2_delta_disp = (
+        f"{vo2_history[-1]['vo2_max'] - vo2_history[-2]['vo2_max']:+.2f}" if len(vo2_history) >= 2 else "N/A"
+    )
+
+    # Heart rate zones as % of max HR; bpm only when max HR is known.
+    def _zone_bpm(pct: float) -> str:
+        return f"{round(max_hr * pct)}" if max_hr else "N/A"
+
+    max_hr_disp = f"{max_hr:.0f} bpm" if max_hr else "N/A"
+    z1_hr = f"&lt; {_zone_bpm(0.70)} bpm" if max_hr else "N/A"
+    z2_hr = f"{_zone_bpm(0.70)} to {_zone_bpm(0.80)} bpm" if max_hr else "N/A"
+    z3_hr = f"{_zone_bpm(0.80)} to {_zone_bpm(0.89)} bpm" if max_hr else "N/A"
+    z4_hr = f"{_zone_bpm(0.89)} to {_zone_bpm(0.95)} bpm" if max_hr else "N/A"
+    z5_hr = f"&gt; {_zone_bpm(0.95)} bpm" if max_hr else "N/A"
+
+    athlete_disp = html.escape(athlete_name) if athlete_name else ""
+    title_suffix = f" ({athlete_disp})" if athlete_disp else ""
+    athlete_pill = f'<div class="pill">Athlete: <strong>{athlete_disp}</strong></div>' if athlete_disp else ""
 
     cutoff_30d = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
     acts_30d = [a for a in activities if a.start_time_local and a.start_time_local[:10] >= cutoff_30d]
@@ -506,7 +524,7 @@ def generate_html_dashboard(
 
             <div class="info-box" style="margin-top: 16px; margin-bottom: 0;">
                 <strong>Scientific Note on VDOT vs Garmin Firstbeat VO2 Max:</strong>
-                Garmin Firstbeat VO2 Max ({current_vo2:.2f}) is a sub-maximal projection based on clean, steady-state heart-rate samples. True race VDOT ({v_val:.1f}) combines aerobic capacity with your real-world running economy, ground contact forces, and muscular fatigue resistance under race conditions.
+                Garmin Firstbeat VO2 Max ({vo2_current_disp}) is a sub-maximal projection based on clean, steady-state heart-rate samples. True race VDOT ({v_val:.1f}) combines aerobic capacity with your real-world running economy, ground contact forces, and muscular fatigue resistance under race conditions.
             </div>
         </div>
         """
@@ -530,7 +548,7 @@ def generate_html_dashboard(
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="color-scheme" content="light dark">
-    <title>Ricelo Running Science | Performance Dashboard ({html.escape(athlete_name)})</title>
+    <title>Ricelo Running Science | Performance Dashboard{title_suffix}</title>
 
     <!-- Professional Typography: Plus Jakarta Sans & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -1225,9 +1243,8 @@ def generate_html_dashboard(
 
         <div class="nav-right">
             <div class="profile-chip">
-                <div class="pill">Athlete: <strong>{html.escape(athlete_name)}</strong></div>
-                <div class="pill">Age: <strong>43</strong> (Fitness Age: <strong>40.7</strong>)</div>
-                <div class="pill">Max HR: <strong>185 bpm</strong> | LTHR: <strong>165 bpm</strong></div>
+                {athlete_pill}
+                <div class="pill">Max HR: <strong>{max_hr_disp}</strong></div>
             </div>
 
             <!-- Theme Toggle Button -->
@@ -1247,8 +1264,8 @@ def generate_html_dashboard(
 
         <div class="timeframe-card">
             <div class="timeframe-badge">Longitudinal VO2 Max Progression</div>
-            <div class="timeframe-title">Full 2 Year Archive ({vo2_days} Days)</div>
-            <div class="timeframe-sub">{vo2_date_range} • {len(vo2_history)} Firstbeat FIT runs</div>
+            <div class="timeframe-title">FIT Archive ({vo2_years_str})</div>
+            <div class="timeframe-sub">{vo2_date_range} • {vo2_count} Firstbeat FIT runs</div>
         </div>
 
         <div class="timeframe-card">
@@ -1261,12 +1278,12 @@ def generate_html_dashboard(
     <!-- Top KPI Cards -->
     <section class="kpi-grid">
         <div class="kpi-card">
-            <div class="kpi-title">Current VO2 Max (2 Year FIT Archive)</div>
+            <div class="kpi-title">Current VO2 Max (FIT Archive)</div>
             <div class="kpi-value-row">
-                <span class="kpi-value">{current_vo2:.2f}</span>
-                <span class="badge badge-fresh">+{vo2_delta}</span>
+                <span class="kpi-value">{vo2_current_disp}</span>
+                <span class="badge badge-fresh">{vo2_delta_disp}</span>
             </div>
-            <div class="kpi-subtext">Garmin Watch: <strong>{round(current_vo2)}</strong> • 119 runs across 2.0 years</div>
+            <div class="kpi-subtext">Garmin Watch: <strong>{vo2_watch_disp}</strong> • {vo2_count} runs • {vo2_years_str}</div>
         </div>
 
         <div class="kpi-card">
@@ -1325,7 +1342,7 @@ def generate_html_dashboard(
     <!-- Navigation Tabs -->
     <nav class="tabs-header">
         <button class="tab-btn active" onclick="switchTab('performanceTab', this)">Performance and Load Curves ({weeks_scope} Weeks)</button>
-        <button class="tab-btn" onclick="switchTab('vo2Tab', this)">2 Year VO2 Max Progression (119 Runs)</button>
+        <button class="tab-btn" onclick="switchTab('vo2Tab', this)">VO2 Max Progression ({vo2_count} Runs)</button>
         <button class="tab-btn" onclick="switchTab('activitiesTab', this)">Running Activities Explorer ({weeks_scope} Weeks)</button>
         <button class="tab-btn" onclick="switchTab('effortsTab', this)">All Time Running Personal Records</button>
         <button class="tab-btn" onclick="switchTab('zonesTab', this)">Physiological Zones and Telemetry</button>
@@ -1365,16 +1382,16 @@ def generate_html_dashboard(
         </div>
     </main>
 
-    <!-- TAB 2: 2 Year VO2 Max Longitudinal Progression -->
+    <!-- TAB 2: VO2 Max Longitudinal Progression -->
     <main id="vo2Tab" class="tab-content">
         <div class="scope-banner">
-            <span><strong>Data Scope:</strong> Full 2 Year Archive ({vo2_years_str}: {vo2_date_range}) • 119 running sessions extracted from raw FIT telemetry</span>
+            <span><strong>Data Scope:</strong> FIT Archive ({vo2_years_str}: {vo2_date_range}) • {vo2_count} running sessions extracted from raw FIT telemetry</span>
         </div>
 
         <div class="panel-card" style="margin-bottom: 24px;">
             <div class="panel-header">
-                <h2>2 Year Longitudinal Firstbeat Sub Integer VO2 Max Telemetry (119 Runs)</h2>
-                <span class="badge badge-optimal">High: {vo2_high:.2f} / Low: {vo2_low:.2f} / Latest: {current_vo2:.2f}</span>
+                <h2>Longitudinal Firstbeat Sub Integer VO2 Max Telemetry ({vo2_count} Runs)</h2>
+                <span class="badge badge-optimal">{vo2_range_disp}</span>
             </div>
             <div class="chart-wrapper" style="height: 380px;">
                 <canvas id="vo2Chart"></canvas>
@@ -1383,10 +1400,7 @@ def generate_html_dashboard(
 
         <div class="info-box">
             <strong>Firstbeat Sub Integer Telemetry:</strong>
-            Garmin Connect web and watches truncate floating point numbers to whole integers (such as 44.35 rendered as 44; 42.71 rendered as 43). This analytics system extracts raw unrounded sub integer oxygen consumption values directly from FIT Message 140, Field 7 using the formula <code>(raw_val * 3.5) / 65536.0</code>.
-            <br><br>
-            <strong>2 Year Physiological Timeline (Nov 2024 to Oct 2026):</strong>
-            Notice the significant 70 day detraining dip in spring and summer 2026 where a training gap caused VO2 max to decline from 44.36 down to a low of 42.26 (down 2.10 points). As structured aerobic volume resumed in late September and October (115 km), VO2 max surged back to 44.35 in just 6 weeks (+0.35 points per week retraining velocity).
+            Garmin Connect web and watches round VO2 max to whole integers (such as 48.35 shown as 48; 47.71 shown as 48). This analytics system extracts raw unrounded sub integer oxygen consumption values directly from FIT Message 140, Field 7 using the formula <code>(raw_val * 3.5) / 65536.0</code>.
         </div>
     </main>
 
@@ -1449,7 +1463,7 @@ def generate_html_dashboard(
     <main id="zonesTab" class="tab-content">
         <div class="panel-card" style="margin-bottom: 24px;">
             <div class="panel-header">
-                <h2>Heart Rate Physiological Training Zones (Max HR: 185 bpm | LTHR: 165 bpm)</h2>
+                <h2>Heart Rate Physiological Training Zones (Max HR: {max_hr_disp})</h2>
             </div>
             <table class="zone-table">
                 <thead>
@@ -1465,35 +1479,35 @@ def generate_html_dashboard(
                     <tr>
                         <td><span class="badge" style="background: rgba(148, 163, 184, 0.2); color: #475569;">Zone 1</span></td>
                         <td>Active Recovery</td>
-                        <td>&lt; 130 bpm</td>
+                        <td>{z1_hr}</td>
                         <td>&lt; 70%</td>
                         <td>Promotes blood flow, clears metabolic waste, recovery between hard days.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(5, 150, 105, 0.15); color: #059669;">Zone 2</span></td>
                         <td>Aerobic Base Endurance</td>
-                        <td>130 to 148 bpm</td>
+                        <td>{z2_hr}</td>
                         <td>70% to 80%</td>
                         <td>Mitochondrial biogenesis, capillary density expansion, fatty acid oxidation efficiency.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(2, 132, 199, 0.15); color: #0284c7;">Zone 3</span></td>
                         <td>Aerobic Tempo</td>
-                        <td>148 to 165 bpm</td>
+                        <td>{z3_hr}</td>
                         <td>80% to 89%</td>
                         <td>Sustained marathon pace rhythm, glycogen storage capacity, cardiac stroke volume.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(217, 119, 6, 0.15); color: #d97706;">Zone 4</span></td>
                         <td>Lactate Threshold (Anaerobic)</td>
-                        <td>165 to 176 bpm</td>
+                        <td>{z4_hr}</td>
                         <td>89% to 95%</td>
                         <td>Lactate clearance capacity, high end 10K / Half Marathon racing speed stamina.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(225, 29, 72, 0.15); color: #e11d48;">Zone 5</span></td>
                         <td>VO2 Max and Neuromuscular</td>
-                        <td>&gt; 176 bpm</td>
+                        <td>{z5_hr}</td>
                         <td>&gt; 95%</td>
                         <td>Maximal oxygen uptake velocity, fast twitch motor unit recruitment.</td>
                     </tr>

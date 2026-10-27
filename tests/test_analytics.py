@@ -338,3 +338,30 @@ def test_dashboard_escapes_activity_names(tmp_path):
     page = out.read_text(encoding="utf-8")
     assert evil not in page
     assert "escapeHtml(act.name)" in page
+
+
+def test_dashboard_has_no_placeholder_athlete_data(tmp_path):
+    from ricelo.reporting import generate_html_dashboard
+
+    act = Activity(
+        activity_id=1,
+        name="Easy Run",
+        activity_type="running",
+        start_time_local="2026-10-20T07:00:00",
+        distance_m=5000,
+        duration_s=1500,
+        avg_speed_mps=3.33,
+    )
+    args = ([act], aggregate_volume([act]), calculate_fitness_fatigue([act], days=14))
+    page = generate_html_dashboard(
+        *args, output_path=tmp_path / "a.html", vo2max_csv_path=tmp_path / "missing.csv"
+    ).read_text(encoding="utf-8")
+    for placeholder in ["44.35", "45.03", "42.26", "723 Days", "2024-11-01", "119 R", "rictau", "185 bpm", "Fitness Age", "Tempo phase"]:
+        assert placeholder not in page, placeholder
+
+    # With a known max HR the zones are derived from it.
+    page = generate_html_dashboard(
+        *args, output_path=tmp_path / "b.html", vo2max_csv_path=tmp_path / "missing.csv", max_hr=200
+    ).read_text(encoding="utf-8")
+    assert "140 to 160 bpm" in page  # Zone 2: 70-80% of 200
+    assert "Max HR: <strong>200 bpm</strong>" in page
