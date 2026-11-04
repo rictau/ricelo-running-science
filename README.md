@@ -52,7 +52,7 @@ Add this entry to your client's MCP config, with `/path/to/uvx` replaced by the 
 
 On Windows, get the path with `where.exe uvx` and write it with forward slashes, e.g. `"C:/Users/you/.local/bin/uvx.exe"`; `~` in the paths above is your user folder, and Claude Desktop is quit from its system-tray icon.
 
-To pass the key in the config instead of the key file, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }`. ChatGPT, claude.ai on the web and mobile apps only support remote MCP servers, so they can't run ricelo.
+To pass the key in the config instead of the key file, add `"env": { "GARMIN_PERSONAL_API_KEY": "..." }`. claude.ai on the web, the Claude mobile apps and ChatGPT only connect to MCP servers by URL. To use ricelo from them, run your own copy on a server: see [docs/remote.md](https://github.com/rictau/ricelo-running-science/blob/master/docs/remote.md).
 
 ## MCP Tools
 
@@ -96,7 +96,7 @@ uv tool install ricelo-running-science
 
 ## Privacy
 
-ricelo has no server and collects nothing. Your key is stored on your computer and only sent to Garmin. When you use ricelo from an AI app, the results you ask about are sent to that app's provider as part of the conversation, under its privacy terms. The HTML dashboard keeps your data inside the file but loads its chart library and fonts from public CDNs (jsDelivr, Google Fonts) when opened.
+ricelo has no server and collects nothing. Your key is stored on your computer and only sent to Garmin. If you choose to [host your own copy](https://github.com/rictau/ricelo-running-science/blob/master/docs/remote.md) for claude.ai or mobile, the key lives on that server instead, which only you control. When you use ricelo from an AI app, the results you ask about are sent to that app's provider as part of the conversation, under its privacy terms. The HTML dashboard keeps your data inside the file but loads its chart library and fonts from public CDNs (jsDelivr, Google Fonts) when opened.
 
 ## Updating
 

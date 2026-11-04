@@ -2,10 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from datetime import timedelta
 from typing import Any, Optional
+from urllib.parse import urlparse
 
+from mcp.server.auth.settings import (
+    AuthSettings,
+    ClientRegistrationOptions,
+    RevocationOptions,
+)
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from .client import default_client
 from .fit import fetch_activity_with_laps, measured_best_efforts
@@ -22,10 +31,103 @@ from .performance import (
 )
 from .recovery import evaluate_daily_readiness, latest_body_battery_record
 
-mcp = FastMCP("ricelo-running-science")
+SERVER_NAME = "ricelo-running-science"
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+_TOOLS: list[Any] = []
 
 
-@mcp.tool()
+def tool(fn):
+    """Mark a function as an MCP tool; build_server registers every marked tool."""
+    _TOOLS.append(fn)
+    return fn
+
+
+def build_server(env: dict[str, str] | None = None) -> FastMCP:
+    """
+    Build the FastMCP server from environment settings.
+
+    Default (RICELO_TRANSPORT unset or "stdio"): a local server the AI app
+    starts itself; nothing here applies. With RICELO_TRANSPORT=http it serves
+    streamable HTTP at /mcp for remote clients (claude.ai, Claude mobile):
+
+      RICELO_PUBLIC_URL      public base URL, e.g. https://mcp.ricelo.com
+      RICELO_AUTH_SECRET     random string (32+ chars) that signs OAuth tokens
+      RICELO_OWNER_PASSWORD  password you type to approve a new connection
+      RICELO_HOST / PORT     bind address (default 127.0.0.1 / 8000)
+
+    Without the three auth settings the HTTP server only binds to loopback,
+    for local testing.
+    """
+    server = _build_bare_server(dict(os.environ if env is None else env))
+    for fn in _TOOLS:
+        server.add_tool(fn)
+    return server
+
+
+def _build_bare_server(env: dict[str, str]) -> FastMCP:
+    if env.get("RICELO_TRANSPORT", "stdio") != "http":
+        return FastMCP(SERVER_NAME)
+
+    host = env.get("RICELO_HOST", "127.0.0.1")
+    port = int(env.get("PORT", "8000"))
+    public_url = env.get("RICELO_PUBLIC_URL", "").rstrip("/")
+    secret = env.get("RICELO_AUTH_SECRET", "")
+    password = env.get("RICELO_OWNER_PASSWORD", "")
+    common: dict[str, Any] = {"host": host, "port": port, "stateless_http": True, "json_response": True}
+
+    if not (public_url or secret or password):
+        if host not in LOOPBACK_HOSTS:
+            raise SystemExit(
+                "Refusing to serve without authentication on a non-loopback address. "
+                "Set RICELO_PUBLIC_URL, RICELO_AUTH_SECRET and RICELO_OWNER_PASSWORD."
+            )
+        return FastMCP(SERVER_NAME, **common)
+
+    missing = [n for n, v in (("RICELO_PUBLIC_URL", public_url), ("RICELO_AUTH_SECRET", secret),
+                              ("RICELO_OWNER_PASSWORD", password)) if not v]
+    if missing:
+        raise SystemExit(f"Remote mode needs {', '.join(missing)}.")
+    parsed = urlparse(public_url)
+    if parsed.scheme != "https" and parsed.hostname not in LOOPBACK_HOSTS:
+        raise SystemExit("RICELO_PUBLIC_URL must use https://")
+
+    from .remote_auth import LOGIN_PATH, SCOPE, OwnerOAuthProvider
+
+    redirect_hosts = tuple(h.strip() for h in env.get("RICELO_REDIRECT_HOSTS", "").split(",") if h.strip())
+    provider = OwnerOAuthProvider(
+        secret=secret,
+        owner_password=password,
+        public_url=public_url,
+        **({"redirect_hosts": redirect_hosts} if redirect_hosts else {}),
+    )
+    netloc = parsed.netloc
+    server = FastMCP(
+        SERVER_NAME,
+        auth_server_provider=provider,
+        auth=AuthSettings(
+            issuer_url=public_url,
+            resource_server_url=f"{public_url}/mcp",
+            validate_token_resource=True,
+            required_scopes=[SCOPE],
+            client_registration_options=ClientRegistrationOptions(
+                enabled=True, valid_scopes=[SCOPE], default_scopes=[SCOPE]
+            ),
+            revocation_options=RevocationOptions(enabled=False),
+        ),
+        # Only answer requests addressed to the public host (DNS-rebinding guard).
+        transport_security=TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=[netloc, f"{netloc}:*"],
+            allowed_origins=[f"{parsed.scheme}://{netloc}", "https://claude.ai", "https://claude.com"],
+        ),
+        **common,
+    )
+    server.custom_route(LOGIN_PATH, methods=["GET", "POST"])(provider.login_page)
+    return server
+
+
+
+@tool
 def list_activities(limit: int = 20, activity_type: Optional[str] = None) -> list[dict[str, Any]]:
     """
     List recent activities, newest first, with their Garmin activity IDs
@@ -48,7 +150,7 @@ def list_activities(limit: int = 20, activity_type: Optional[str] = None) -> lis
     ]
 
 
-@mcp.tool()
+@tool
 def analyze_run(activity_id: int) -> dict[str, Any]:
     """
     Perform deep running performance analysis on a specific activity.
@@ -100,7 +202,7 @@ def analyze_run(activity_id: int) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@tool
 def compare_runs(activity_id_a: int, activity_id_b: int) -> dict[str, Any]:
     """
     Compare two running sessions head-to-head (e.g. recent 10k run vs previous 10k run).
@@ -127,7 +229,7 @@ def compare_runs(activity_id_a: int, activity_id_b: int) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@tool
 def get_training_volume(weeks: int = 12, frequency: str = "W") -> list[dict[str, Any]]:
     """
     Calculate aggregated running and endurance volume by week or month.
@@ -155,7 +257,7 @@ def get_training_volume(weeks: int = 12, frequency: str = "W") -> list[dict[str,
     ]
 
 
-@mcp.tool()
+@tool
 def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     """
     Model running training load progression using the Banister impulse-response model:
@@ -195,7 +297,7 @@ def get_fitness_and_freshness(days: int = 60) -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@tool
 def get_personal_records() -> list[dict[str, Any]]:
     """
     Find athlete's career running personal records and landmark efforts across historical activities
@@ -219,7 +321,7 @@ def get_personal_records() -> list[dict[str, Any]]:
     ]
 
 
-@mcp.tool()
+@tool
 def get_readiness_assessment() -> dict[str, Any]:
     """
     Synthesize Garmin recovery biometrics (last night's sleep score, sleep stages,
@@ -275,7 +377,7 @@ def get_readiness_assessment() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@tool
 def get_acwr_injury_risk() -> dict[str, Any]:
     """
     Calculate Acute-to-Chronic Workload Ratio (Gabbett 2016 sports science model)
@@ -302,7 +404,7 @@ def get_acwr_injury_risk() -> dict[str, Any]:
     }
 
 
-@mcp.tool()
+@tool
 def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[float] = None) -> dict[str, Any]:
     """
     Calculate Jack Daniels VDOT, equivalent race predictions, and prescribed training paces
@@ -350,8 +452,15 @@ def get_vdot_paces(distance_m: Optional[float] = None, duration_s: Optional[floa
     return result
 
 
+mcp = build_server()
+
+
 def main():
-    mcp.run()
+    if mcp.settings.stateless_http:  # built for RICELO_TRANSPORT=http
+        print(f"ricelo MCP over HTTP on {mcp.settings.host}:{mcp.settings.port}/mcp", file=sys.stderr)
+        mcp.run(transport="streamable-http")
+    else:
+        mcp.run()
 
 
 if __name__ == "__main__":

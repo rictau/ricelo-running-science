@@ -1,0 +1,17 @@
+.git
+.venv
+.cursor
+.github
+.pytest_cache
+.ruff_cache
+dist
+build
+downloads
+notebooks
+tests
+scripts
+**/__pycache__
+*.csv
+*.zip
+*.html
+.env
