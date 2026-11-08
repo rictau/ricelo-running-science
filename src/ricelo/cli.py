@@ -442,5 +442,95 @@ def get_vdot(
         sys.exit(1)
 
 
+@app.command("google-login")
+def google_login(
+    manual: bool = typer.Option(False, "--manual", help="Headless login: paste the redirect URL instead of running a local listener"),
+    port: int = typer.Option(8765, "--port", help="Port of the http://localhost:PORT/ redirect URI registered in Google Cloud"),
+) -> None:
+    """Authorize ricelo to read your Google Health (Fitbit) data, for sync-fitbit."""
+    from .google_health import GoogleHealthAuthError, login
+
+    try:
+        path = login(port=port, manual=manual, echo=console.print)
+        console.print(f"[bold green]✓ Logged in to Google Health.[/bold green] Token saved to {path}")
+    except GoogleHealthAuthError as exc:
+        console.print(f"[bold red]Google login failed:[/bold red] {exc}")
+        sys.exit(1)
+
+
+SYNC_ACTION_STYLES = {
+    "uploaded": "green",
+    "would-upload": "cyan",
+    "duplicate": "yellow",
+    "failed": "bold red",
+}
+
+
+@app.command("sync-fitbit")
+def sync_fitbit(
+    days: int = typer.Option(7, "--days", "-d", help="Look back this many days (ignored with --since)"),
+    since: Optional[str] = typer.Option(None, "--since", help="First date to sync, YYYY-MM-DD"),
+    until: Optional[str] = typer.Option(None, "--until", help="Last date to sync, YYYY-MM-DD (default: today)"),
+    types: Optional[list[str]] = typer.Option(None, "--type", "-t", help="Only these Google Health exercise types, e.g. RUNNING (repeatable)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Export and prepare files but upload nothing"),
+    save_dir: Optional[str] = typer.Option(None, "--save-dir", help="Also keep the prepared .tcx files here"),
+    include_overlapping: bool = typer.Option(False, "--include-overlapping", help="Upload even when a Garmin activity covers the same time"),
+    no_hr_fill: bool = typer.Option(False, "--no-hr-fill", help="Don't add heart-rate samples to TCX files that lack them"),
+) -> None:
+    """Copy new Google Health (Fitbit) exercises to Garmin Connect."""
+    from datetime import date
+    from pathlib import Path
+
+    from rich.table import Table
+
+    from .fitbit_sync import SyncOptions, sync
+    from .google_health import GoogleHealthAuthError, GoogleHealthClient
+
+    try:
+        start = date.fromisoformat(since) if since else date.today() - timedelta(days=days)
+        end = date.fromisoformat(until) if until else None
+    except ValueError as exc:
+        console.print(f"[bold red]Bad date:[/bold red] {exc}")
+        sys.exit(2)
+
+    options = SyncOptions(
+        start=start,
+        end=end,
+        types={t.upper() for t in types} if types else None,
+        skip_overlapping=not include_overlapping,
+        fill_heart_rate=not no_hr_fill,
+        dry_run=dry_run,
+        save_dir=Path(save_dir).expanduser() if save_dir else None,
+        progress=lambda msg: console.print(f"[dim]{msg}[/dim]"),
+    )
+    try:
+        results = sync(GoogleHealthClient(), default_client, options)
+    except (GoogleHealthAuthError, GarminAuthError) as exc:
+        console.print(f"[bold red]Authentication Error:[/bold red] {exc}")
+        sys.exit(1)
+    except Exception as exc:
+        console.print(f"[bold red]Sync failed:[/bold red] {exc}")
+        sys.exit(1)
+
+    if not results:
+        console.print(f"[yellow]No Google Health exercises since {start}.[/yellow]")
+        return
+    table = Table(title="Google Health → Garmin Connect", show_header=True)
+    for column in ("Start", "Exercise", "Result", "Garmin ID", "Detail"):
+        table.add_column(column)
+    for r in results:
+        style = SYNC_ACTION_STYLES.get(r.action, "dim")
+        table.add_row(
+            f"{r.exercise.start.astimezone():%Y-%m-%d %H:%M}",
+            r.exercise.display_name,
+            f"[{style}]{r.action}[/{style}]",
+            str(r.garmin_activity_id or ""),
+            r.detail,
+        )
+    console.print(table)
+    if any(r.action == "failed" for r in results):
+        sys.exit(1)
+
+
 if __name__ == "__main__":
     app()

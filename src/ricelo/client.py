@@ -240,6 +240,32 @@ class GarminClient:
         zip_file.write_bytes(self.download_activity_bytes(activity_id))
         return zip_file
 
+    def upload_activity(self, filename: str, content: bytes) -> dict[str, Any]:
+        """Upload a FIT, TCX or GPX file as a new activity.
+
+        Returns {"status": "uploaded" | "duplicate" | "failed",
+        "activity_id": int | None, "message": str, "raw": response JSON}.
+        Garmin reports a duplicate either as HTTP 409 or as a failure message
+        in a 2xx response, so both are mapped to "duplicate".
+        """
+        try:
+            resp = self._request(
+                "POST",
+                "/upload-service/upload",
+                files={"file": (filename, content, "application/octet-stream")},
+                headers={"Accept": "*/*"},
+            )
+            raw = resp.json() if resp.content else {}
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 409:
+                try:
+                    raw = exc.response.json()
+                except ValueError:
+                    raw = {}
+                return {"status": "duplicate", "activity_id": None, "message": "Duplicate activity", "raw": raw}
+            raise
+        return parse_upload_result(raw)
+
     def get_daily_summaries(self, start_date: str | date, end_date: str | date) -> list[dict[str, Any]]:
         """Fetch daily wellness summaries across a date range.
 
@@ -341,6 +367,26 @@ def _fetch_in_windows(
         records.extend(fetch(start.isoformat(), window_end.isoformat()))
         start = window_end + timedelta(days=1)
     return records
+
+
+def parse_upload_result(raw: Any) -> dict[str, Any]:
+    """Interpret the upload service's detailedImportResult."""
+    result = (raw or {}).get("detailedImportResult", {}) if isinstance(raw, dict) else {}
+    successes = result.get("successes") or []
+    failures = result.get("failures") or []
+    if successes:
+        activity_id = successes[0].get("internalId")
+        return {"status": "uploaded", "activity_id": activity_id, "message": "", "raw": raw}
+    messages = [
+        m.get("content", "") for f in failures for m in (f.get("messages") or [])
+    ]
+    message = "; ".join(m for m in messages if m)
+    if "duplicate" in message.lower():
+        return {"status": "duplicate", "activity_id": None, "message": message, "raw": raw}
+    if failures:
+        return {"status": "failed", "activity_id": None, "message": message or "Upload failed", "raw": raw}
+    # Accepted but still processing: Garmin answers 202 with an uploadId only.
+    return {"status": "uploaded", "activity_id": None, "message": "Accepted, still processing", "raw": raw}
 
 
 # Singleton instance

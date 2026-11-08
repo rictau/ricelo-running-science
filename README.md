@@ -93,10 +93,14 @@ uv tool install ricelo-running-science
 | `vo2max -n 8` | VO2 max to two decimals, from FIT files |
 | `download <id>` | Download and summarise an activity's FIT file |
 | `dashboard -w 12` | Standalone HTML dashboard (`--max-hr` to override Garmin's max HR) |
+| `google-login` | Authorize reading your Google Health (Fitbit) data, once |
+| `sync-fitbit -d 7` | Copy new Google Health (Fitbit) exercises to Garmin Connect (`--dry-run` to preview) |
+
+`sync-fitbit` needs a one-time Google Cloud setup; see [docs/fitbit-sync.md](docs/fitbit-sync.md).
 
 ## Privacy
 
-ricelo has no server and collects nothing. Your key is stored on your computer and only sent to Garmin. When you use ricelo from an AI app, the results you ask about are sent to that app's provider as part of the conversation, under its privacy terms. The HTML dashboard keeps your data inside the file but loads its chart library and fonts from public CDNs (jsDelivr, Google Fonts) when opened.
+ricelo has no server and collects nothing. Your key is stored on your computer and only sent to Garmin. If you use `sync-fitbit`, your Google OAuth client and token are stored on your computer too, and your exercises go straight from Google to Garmin. When you use ricelo from an AI app, the results you ask about are sent to that app's provider as part of the conversation, under its privacy terms. The HTML dashboard keeps your data inside the file but loads its chart library and fonts from public CDNs (jsDelivr, Google Fonts) when opened.
 
 ## Updating
 
