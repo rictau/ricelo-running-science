@@ -91,7 +91,10 @@ with the same command.
   lists the Personal tier (the key ricelo uses) as *"Pull only"*: it reads your
   own Activity, Health and Women's Health data. The Business tiers are *"Push"*
   from Garmin to a partner, and none of the tiers is described as accepting
-  completed activities. ricelo still tries Garmin's standard upload endpoint
+  completed activities. The [Personal API page](https://developer.garmin.com/gc-developer-program/personal/personal-api)
+  documents no upload endpoint, and every data call in Garmin's own example
+  client ([garmin/connect-personal-api-python](https://github.com/garmin/connect-personal-api-python))
+  is a read. ricelo still tries Garmin's standard upload endpoint
   (`/upload-service/upload`) in case the key allows it. If Garmin refuses
   (HTTP 401, 403, 404 or 405), the sync stops with "Upload not allowed". Use
   the file route instead:
