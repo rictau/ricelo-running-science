@@ -25,6 +25,10 @@ class GarminAuthError(RuntimeError):
     pass
 
 
+class GarminUploadNotAllowed(RuntimeError):
+    """Raised when Garmin refuses activity uploads for this credential."""
+
+
 class GarminClient:
     """Native HTTP client for Garmin Connect Personal API."""
 
@@ -263,6 +267,13 @@ class GarminClient:
                 except ValueError:
                     raw = {}
                 return {"status": "duplicate", "activity_id": None, "message": "Duplicate activity", "raw": raw}
+            if exc.response.status_code in (401, 403, 404, 405):
+                # Garmin documents the Personal tier as "Pull only" (read access).
+                raise GarminUploadNotAllowed(
+                    f"Garmin refused the upload (HTTP {exc.response.status_code}): the Personal API key "
+                    "appears to be read-only. Export the files with `ricelo sync-fitbit --dry-run --save-dir DIR` "
+                    "and import them at connect.garmin.com > Import Data."
+                ) from exc
             raise
         return parse_upload_result(raw)
 

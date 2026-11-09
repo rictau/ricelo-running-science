@@ -322,3 +322,34 @@ def test_expired_token_is_refreshed_and_saved(tmp_path, monkeypatch):
     assert client.list_exercises(date(2026, 9, 1)) == []
     saved = json.loads((tmp_path / "token.json").read_text())
     assert saved["access_token"] == "new" and saved["refresh_token"] == "r"
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 405])
+def test_upload_refused_raises_not_allowed(monkeypatch, status):
+    from ricelo.client import GarminUploadNotAllowed
+
+    client = GarminClient(api_key="k")
+    request = httpx.Request("POST", "https://x/upload-service/upload")
+
+    def fake_request(method, path, **kwargs):
+        raise httpx.HTTPStatusError("no", request=request, response=httpx.Response(status, request=request))
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    with pytest.raises(GarminUploadNotAllowed, match="read-only"):
+        client.upload_activity("a.tcx", b"<x/>")
+
+
+def test_sync_stops_when_uploads_not_allowed(tmp_path):
+    from ricelo.client import GarminUploadNotAllowed
+
+    class RefusingGarmin(FakeGarmin):
+        def upload_activity(self, filename, content):
+            self.uploads.append(filename)
+            raise GarminUploadNotAllowed("read-only")
+
+    garmin = RefusingGarmin()
+    points = [exercise_point("1"), exercise_point("2", "2026-09-04T11:20:00Z", "2026-09-04T11:50:00Z")]
+    with pytest.raises(GarminUploadNotAllowed):
+        sync(FakeGoogle(points), garmin, SyncOptions(start=date(2026, 9, 1), state_file=tmp_path / "s.json"))
+    assert len(garmin.uploads) == 1
+    assert not (tmp_path / "s.json").exists()

@@ -20,6 +20,7 @@ from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from .client import GarminUploadNotAllowed
 from .google_health import CONFIG_DIR, parse_rfc3339, write_private_json
 
 DEFAULT_STATE_FILE = CONFIG_DIR / "fitbit-sync-state.json"
@@ -272,6 +273,8 @@ def sync(google: GoogleSource, garmin: GarminTarget, options: SyncOptions) -> li
 
             options.progress(f"Uploading {filename}")
             outcome = garmin.upload_activity(filename, tcx)
+        except GarminUploadNotAllowed:
+            raise  # every other upload would be refused too
         except Exception as exc:  # one bad exercise must not stop the rest
             results.append(SyncResult(ex, "failed", str(exc)))
             continue

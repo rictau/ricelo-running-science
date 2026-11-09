@@ -13,7 +13,9 @@ Neither company offers this sync. ricelo does it in four steps:
 3. Set the TCX sport from the exercise type, add heart rate from your
    heart-rate samples if the export has none, and add a note saying where it came from.
 4. Upload the file to Garmin Connect with your Garmin Personal API key, the
-   same key the rest of ricelo uses.
+   same key the rest of ricelo uses. Garmin documents that key as read-only,
+   so this step may be refused; see [Limitations](#limitations) for the
+   file-import fallback.
 
 A state file (`~/.config/ricelo/fitbit-sync-state.json`) remembers what was
 uploaded, so each run only sends new exercises. A failed upload is not
@@ -84,13 +86,21 @@ with the same command.
   again each week. The sync then says the refresh token was rejected. Publishing
   the app would avoid this, but Google Health scopes are *restricted*, and
   publishing means a privacy and security review by Google.
-- **Garmin upload through the Personal API is not yet confirmed.** ricelo uses
-  Garmin's standard upload endpoint (`/upload-service/upload`) with your
-  Personal API token. Reading data with that token is verified. Uploading has
-  not been tested with a real key yet. If uploads fail with HTTP 401, 403 or
-  404, the Personal API key can't upload, and this command can't work as is.
-  Try `--dry-run --save-dir` and upload one file by hand at
-  connect.garmin.com → Import Data to check the files themselves.
+- **Garmin upload through the Personal API is probably not allowed.** The
+  [Garmin Connect Developer Program overview](https://developer.garmin.com/gc-developer-program/overview/)
+  lists the Personal tier (the key ricelo uses) as *"Pull only"*: it reads your
+  own Activity, Health and Women's Health data. The Business tiers are *"Push"*
+  from Garmin to a partner, and none of the tiers is described as accepting
+  completed activities. ricelo still tries Garmin's standard upload endpoint
+  (`/upload-service/upload`) in case the key allows it. If Garmin refuses
+  (HTTP 401, 403, 404 or 405), the sync stops with "Upload not allowed". Use
+  the file route instead:
+  ```bash
+  ricelo sync-fitbit --dry-run --save-dir ~/fitbit-tcx
+  ```
+  Then import the files at connect.garmin.com → Import Data, which accepts
+  several files at once. The dry run doesn't update the state file, so a later
+  run lists the same exercises again. Use `--since` to limit it to new ones.
 - **Sport types.** TCX only knows Running, Biking and Other. Walks, hikes,
   gym sessions and the like arrive as "Other". You can change the type in
   Garmin Connect.

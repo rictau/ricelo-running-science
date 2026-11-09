@@ -9,7 +9,7 @@ from typing import Optional
 import typer
 from rich.console import Console
 
-from .client import GarminAuthError, default_client
+from .client import GarminAuthError, GarminUploadNotAllowed, default_client
 from .fit import extract_and_parse_fit, fetch_activity_with_laps, measured_best_efforts
 from .models import Activity
 from .performance import (
@@ -507,6 +507,9 @@ def sync_fitbit(
         results = sync(GoogleHealthClient(), default_client, options)
     except (GoogleHealthAuthError, GarminAuthError) as exc:
         console.print(f"[bold red]Authentication Error:[/bold red] {exc}")
+        sys.exit(1)
+    except GarminUploadNotAllowed as exc:
+        console.print(f"[bold red]Upload not allowed:[/bold red] {exc}")
         sys.exit(1)
     except Exception as exc:
         console.print(f"[bold red]Sync failed:[/bold red] {exc}")
